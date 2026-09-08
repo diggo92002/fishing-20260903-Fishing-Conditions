@@ -2,7 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- viewport-fit=cover 讓 iPhone 的 safe-area-inset 能避開瀏海與靈動島。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <!-- PWA / GitHub Pages -->
     <meta name="description" content="釣點海象、潮汐、風浪與活動安全評估儀表板">
     <meta name="theme-color" content="#0f172a">
@@ -12,8 +13,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="釣魚海象">
     <link rel="manifest" href="./manifest.json">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
 
     <title>釣點海象與活動安全評估儀表板</title>
     
@@ -43,7 +43,14 @@
             background-color: var(--bg-color);
             color: var(--text-color);
             margin: 0;
-            padding: 12px;
+            /* 額外保留 12px，避免獨立網頁模式的標題貼近靈動島。 */
+            padding:
+                calc(12px + env(safe-area-inset-top, 0px))
+                calc(12px + env(safe-area-inset-right, 0px))
+                calc(12px + env(safe-area-inset-bottom, 0px))
+                calc(12px + env(safe-area-inset-left, 0px));
+            min-height: 100dvh;
+            box-sizing: border-box;
             display: flex;
             justify-content: center;
         }
@@ -446,7 +453,11 @@
 
         /* ===== Mobile Version Overrides ===== */
         body.app-shell.mobile-version {
-            padding: 8px;
+            padding:
+                calc(8px + env(safe-area-inset-top, 0px))
+                calc(8px + env(safe-area-inset-right, 0px))
+                calc(8px + env(safe-area-inset-bottom, 0px))
+                calc(8px + env(safe-area-inset-left, 0px));
         }
         body.app-shell.mobile-version .container {
             max-width: 430px;
@@ -3381,9 +3392,16 @@
         // 多抓前一天並請求 14 天；較長期時段若來源模型尚未提供資料，前端會明確標示資料不足。
         const tideUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=sea_level_height_msl&models=best_match&timezone=Asia%2FTaipei&cell_selection=sea&past_days=1&forecast_days=14`;
 
+        const fetchWithTimeout = (url, timeoutMs = 15000) => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+        };
+
         try {
             const [weatherResRaw, waveResRaw, currentResRaw, tideResRaw, hazardResRaw] = await Promise.all([
-                fetch(weatherUrl), fetch(waveUrl), fetch(currentUrl), fetch(tideUrl), fetch(hazardUrl)
+                fetchWithTimeout(weatherUrl), fetchWithTimeout(waveUrl), fetchWithTimeout(currentUrl),
+                fetchWithTimeout(tideUrl), fetchWithTimeout(hazardUrl)
             ]);
 
             async function readApiResponse(res, label) {
@@ -3429,6 +3447,8 @@
             statusEl.textContent = '⚠️ 同步失敗';
             statusEl.style.color = 'var(--warning-color)';
             generateFallbackData();
+            statusEl.textContent = '⚠️ 即時資料讀取失敗，以下為備援資料（僅供測試）';
+            statusEl.title = err?.message || '資料來源無法連線';
         }
     }
 
@@ -4245,7 +4265,16 @@
 
         const raw24hData = currentDataByDate[selectedDateIndex];
         const displayData = raw24hData.filter(d => d.hour % timeStep === 0);
-        const windowData = raw24hData.filter(d => d.hour >= startHour && d.hour < endHour);
+        // Build the evaluation window across midnight instead of truncating it at 24:00.
+        const windowData = [];
+        for (let offset = 0; offset < windowHours; offset++) {
+            const absoluteHour = startHour + offset;
+            const dateOffset = Math.floor(absoluteHour / 24);
+            const hour = absoluteHour % 24;
+            const dayData = currentDataByDate[selectedDateIndex + dateOffset];
+            const item = dayData?.find(d => d.hour === hour);
+            if (item) windowData.push(item);
+        }
 
         document.getElementById('resultCardTitle').textContent = `📊 綜合評估結果 (${windowHours}小時窗口 - ${activeDateInfo.tideName})`;
         document.getElementById('windowDisplay').textContent = `評估區間：${String(startHour).padStart(2, '0')}:00 ~ ${String(endHour % 24).padStart(2, '0')}:00`;
