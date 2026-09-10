@@ -1847,7 +1847,7 @@
         <!-- 可隱藏的地圖容器包裝 -->
         <div id="mapContainerWrapper" style="display: none;">
             <div class="section-headline map-tip-headline">
-                    <span>💡 操作提示：可點地圖標記釣點；洋流／潮流顯示流速＋流向箭頭，風速顯示風速＋方向箭頭。</span>
+                    <span>💡 操作提示：可點地圖標記釣點。</span>
                 <button class="toggle-btn compact-btn compact-hide-btn" onclick="toggleMapVisibility()">✖️ 隱藏</button>
             </div>
             
@@ -1871,17 +1871,16 @@
     <div class="card" id="dateCard">
         <div class="card-title">📅 選擇日期</div>
         <div style="margin-top: 15px;" class="date-selector compact-date-selector" id="dateSelector"></div>
-        <div style="font-size:0.68rem; color:var(--text-muted); margin-top:6px; line-height:1.35;">第 11～14 天屬較長期趨勢；若洋流／潮流模式尚未提供資料，系統會顯示「資料不足」，不以假值補齊。</div>
         <div class="card-title compact-section-title" style="margin-top: 12px;">⏰ 預定出海時間</div>
         <div class="controls-container time-control-row">
             <div class="control-group inline-time-group">
                 <label for="startTime">開始時間：</label>
-                <select id="startTime" onchange="updateDashboard()"></select>
+                <select id="startTime" onchange="handleDashboardPreferenceChange()"></select>
             </div>
 
             <div class="control-group inline-time-group">
                 <label for="windowSize">評估窗口：</label>
-                <select id="windowSize" onchange="updateDashboard()">
+                <select id="windowSize" onchange="handleDashboardPreferenceChange()">
                     <option value="2">2 小時</option>
                     <option value="4">4 小時</option>
                     <option value="6">6 小時</option>
@@ -1892,9 +1891,9 @@
             </div>
             <div class="control-group mobile-activity-row compact-activity-row" style="background: #0f172a; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">
                 <label for="activityMode" style="font-size: 0.85rem;"><strong>活動模式：</strong></label>
-                <select id="activityMode" onchange="updateDashboard()" style="padding: 4px 8px; font-size: 0.85rem;">
-                    <option value="sup">🏄 SUP 槳板模式 (嚴格)</option>
-                    <option value="boat">🛥️ 搭船出海 / 船釣模式</option>
+                <select id="activityMode" onchange="handleDashboardPreferenceChange()" style="padding: 4px 8px; font-size: 0.85rem;">
+                    <option value="sup">🏄 SUP 槳板模式</option>
+                    <option value="boat">🛥️ 船釣模式</option>
                 </select>
             </div>
             <span id="windowDisplay" style="color: var(--accent-blue); font-weight: bold; margin-left: auto;"></span>
@@ -2384,6 +2383,8 @@
     let myLocations = {};
     let currentLocationKey = 'longdong';
     let selectedDateIndex = 0;
+    const DASHBOARD_PREFERENCES_KEY = 'sunnyfish_dashboard_preferences_v1';
+    let savedDashboardPreferences = null;
     let isHorizontalLayout = true;
     let timeStep = 1;
     let currentDataByDate = [];
@@ -2448,6 +2449,62 @@
         if (!myLocations[currentLocationKey]) {
             currentLocationKey = Object.keys(myLocations)[0];
         }
+    }
+
+    function loadDashboardPreferences() {
+        try {
+            const saved = localStorage.getItem(DASHBOARD_PREFERENCES_KEY);
+            savedDashboardPreferences = saved ? JSON.parse(saved) : null;
+        } catch (e) {
+            savedDashboardPreferences = null;
+        }
+
+        const savedLocation = savedDashboardPreferences?.locationKey;
+        if (savedLocation && myLocations[savedLocation]) {
+            currentLocationKey = savedLocation;
+        }
+    }
+
+    function saveDashboardPreferences() {
+        const startTime = document.getElementById('startTime');
+        const windowSize = document.getElementById('windowSize');
+        const activityMode = document.getElementById('activityMode');
+        if (!startTime || !windowSize || !activityMode) return;
+
+        const preferences = {
+            locationKey: currentLocationKey,
+            startTime: startTime.value,
+            windowSize: windowSize.value,
+            activityMode: activityMode.value
+        };
+
+        // Keep the in-memory copy current too, so this remains reliable even if
+        // localStorage is unavailable (for example, in a private browser mode).
+        savedDashboardPreferences = preferences;
+        try {
+            localStorage.setItem(DASHBOARD_PREFERENCES_KEY, JSON.stringify(preferences));
+        } catch (e) {
+            console.warn('Unable to save dashboard preferences.', e);
+        }
+    }
+
+    function restoreDashboardPreferences() {
+        if (!savedDashboardPreferences) return;
+        const { startTime, windowSize, activityMode } = savedDashboardPreferences;
+        const setIfAvailable = (id, value) => {
+            const select = document.getElementById(id);
+            if (select && Array.from(select.options).some(option => option.value === String(value))) {
+                select.value = String(value);
+            }
+        };
+        setIfAvailable('startTime', startTime);
+        setIfAvailable('windowSize', windowSize);
+        setIfAvailable('activityMode', activityMode);
+    }
+
+    function handleDashboardPreferenceChange() {
+        saveDashboardPreferences();
+        updateDashboard();
     }
 
     function saveMyLocations() {
@@ -2920,7 +2977,7 @@
             markMapPositionDirty();
         });
 
-        currentMarker.bindPopup(`<b>${loc.name}</b><br>緯: ${loc.lat.toFixed(4)} | 經: ${loc.lon.toFixed(4)}<br><i>提示：點擊地圖其他地方可直接移動標記</i>`).openPopup();
+        "currentMarker.bindPopup(`<b>${loc.name}</b><br>緯: ${loc.lat.toFixed(4)} | 經: ${loc.lon.toFixed(4)}<br><i>提示：點擊地圖其他地方可直接移動標記</i>`).openPopup();"
         map.setView([loc.lat, loc.lon], 13);
         mapPositionDirty = false;
         setMapSaveState('idle');
@@ -3060,6 +3117,7 @@
         currentLocationKey = spotId;
         saveMyLocations();
         renderLocationSelect();
+        saveDashboardPreferences();
         updateMapMarker();
         onSubRegionChange();
         loadConfigToUI();
@@ -3076,6 +3134,7 @@
             currentLocationKey = Object.keys(myLocations)[0];
             saveMyLocations();
             renderLocationSelect();
+            saveDashboardPreferences();
             updateMapMarker();
             onSubRegionChange();
             loadConfigToUI();
@@ -3085,6 +3144,7 @@
 
     function onLocationChange() {
         currentLocationKey = document.getElementById('locationSelect').value;
+        saveDashboardPreferences();
         loadConfigToUI();
         updateMapMarker();
         fetchSunnyFishData();
@@ -3220,6 +3280,7 @@
         saveMyLocations();
         renderLocationSelect();
         document.getElementById('locationSelect').value = currentLocationKey;
+        saveDashboardPreferences();
 
         loadConfigToUI();
         syncMapSpotNameInput();
@@ -3840,6 +3901,7 @@
 
     function init() {
         loadMyLocations();
+        loadDashboardPreferences();
         renderLocationSelect();
         initMacroRegions();
         loadConfigToUI();
@@ -3866,6 +3928,7 @@
 
         populateTimeSelect();
         applyMobilePreset();
+        restoreDashboardPreferences();
         fetchSunnyFishData();
     }
 
