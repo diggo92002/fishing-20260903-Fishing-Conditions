@@ -36,6 +36,8 @@
             --border-color: #334155;
             --ecmwf-color: #a855f7;
             --noaa-color: #3b82f6;
+            --date-font-scale: 1;
+            --forecast-font-scale: 1;
         }
 
         body {
@@ -229,8 +231,9 @@
             padding: 4px;
         }
 
-        .date-week { font-size: 0.8rem; font-weight: 600; line-height: 1; color: var(--text-color); }
-        .date-main { font-size: 1rem; font-weight: 700; line-height: 1.1; white-space: nowrap; color: var(--text-color); }
+        .date-week { font-size: calc(0.8rem * var(--date-font-scale)); font-weight: 600; line-height: 1; color: var(--text-color); }
+        .date-main { font-size: calc(1rem * var(--date-font-scale)); font-weight: 700; line-height: 1.1; white-space: nowrap; color: var(--text-color); }
+        .date-btn .date-lunar { font-size: calc(0.72rem * var(--date-font-scale)) !important; }
 
         .date-btn.active {
             background-color: var(--accent-blue);
@@ -391,7 +394,8 @@
 
         .table-container.vertical { max-height: 240px; overflow-y: auto; }
 
-        table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.8rem; white-space: nowrap; }
+        table { width: 100%; border-collapse: collapse; text-align: center; font-size: calc(0.8rem * var(--forecast-font-scale)); white-space: nowrap; }
+        #forecastTable td span[style*="font-size:0.42rem"] { font-size: calc(0.42rem * var(--forecast-font-scale)) !important; }
         th, td { padding: 6px 8px; border: 1px solid var(--border-color); }
         th { background-color: #0f172a; color: var(--text-muted); }
 
@@ -707,13 +711,13 @@
             padding: 2px;
         }
         body.app-shell.mobile-version .date-week {
-            font-size: 0.42rem;
+            font-size: calc(0.42rem * var(--date-font-scale));
         }
         body.app-shell.mobile-version .date-main {
-            font-size: 0.52rem;
+            font-size: calc(0.52rem * var(--date-font-scale));
         }
-        body.app-shell.mobile-version .date-btn .date-top span[style*="font-size: 0.72rem"] {
-            font-size: 0.38rem !important;
+        body.app-shell.mobile-version .date-btn .date-top .date-lunar {
+            font-size: calc(0.38rem * var(--date-font-scale)) !important;
             margin-top: 0 !important;
         }
         body.app-shell.mobile-version .time-control-row {
@@ -759,7 +763,7 @@
             margin-left: auto;
         }
         body.app-shell.mobile-version table {
-            font-size: 0.4rem;
+            font-size: calc(0.4rem * var(--forecast-font-scale));
         }
         body.app-shell.mobile-version th,
         body.app-shell.mobile-version td {
@@ -2064,6 +2068,26 @@
                             <label>風流對沖最低洋流 (kt):</label>
                             <input type="number" id="cfg_safety_oppositionMinCurrent" min="0" step="0.1" value="0.5">
                         </div>
+                        <div class="config-row">
+                            <label>日期列字型大小：</label>
+                            <select id="cfg_display_dateFontScale" onchange="previewDisplayFontScale()">
+                                <option value="1">100%（預設）</option>
+                                <option value="1.15">115%</option>
+                                <option value="1.3">130%</option>
+                                <option value="1.45">145%</option>
+                                <option value="1.6">160%</option>
+                            </select>
+                        </div>
+                        <div class="config-row">
+                            <label>海象表格字型大小：</label>
+                            <select id="cfg_display_forecastFontScale" onchange="previewDisplayFontScale()">
+                                <option value="1">100%（預設）</option>
+                                <option value="1.15">115%</option>
+                                <option value="1.3">130%</option>
+                                <option value="1.45">145%</option>
+                                <option value="1.6">160%</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -2377,7 +2401,9 @@
         safety_thunderAction: 'danger',
         safety_oppositionAngle: 135,
         safety_oppositionMinWind: 8.0,
-        safety_oppositionMinCurrent: 0.5
+        safety_oppositionMinCurrent: 0.5,
+        display_dateFontScale: 1,
+        display_forecastFontScale: 1
     };
 
     let myLocations = {};
@@ -3198,6 +3224,9 @@
         document.getElementById('cfg_safety_oppositionAngle').value = loc.config?.safety_oppositionAngle ?? DEFAULT_CONFIG.safety_oppositionAngle;
         document.getElementById('cfg_safety_oppositionMinWind').value = loc.config?.safety_oppositionMinWind ?? DEFAULT_CONFIG.safety_oppositionMinWind;
         document.getElementById('cfg_safety_oppositionMinCurrent').value = loc.config?.safety_oppositionMinCurrent ?? DEFAULT_CONFIG.safety_oppositionMinCurrent;
+        document.getElementById('cfg_display_dateFontScale').value = String(loc.config?.display_dateFontScale ?? DEFAULT_CONFIG.display_dateFontScale);
+        document.getElementById('cfg_display_forecastFontScale').value = String(loc.config?.display_forecastFontScale ?? DEFAULT_CONFIG.display_forecastFontScale);
+        applyDisplayFontScale(loc.config);
         
         updateConfigViewMode();
     }
@@ -3213,6 +3242,23 @@
             btn.textContent = shouldOpen ? '收合' : '展開';
             btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
         }
+    }
+
+    function applyDisplayFontScale(config) {
+        const readScale = (value, fallback) => {
+            const scale = Number(value);
+            return Number.isFinite(scale) && scale >= 1 && scale <= 1.6 ? scale : fallback;
+        };
+        const cfg = config || myLocations[currentLocationKey]?.config || DEFAULT_CONFIG;
+        document.documentElement.style.setProperty('--date-font-scale', readScale(cfg.display_dateFontScale, DEFAULT_CONFIG.display_dateFontScale));
+        document.documentElement.style.setProperty('--forecast-font-scale', readScale(cfg.display_forecastFontScale, DEFAULT_CONFIG.display_forecastFontScale));
+    }
+
+    function previewDisplayFontScale() {
+        applyDisplayFontScale({
+            display_dateFontScale: document.getElementById('cfg_display_dateFontScale').value,
+            display_forecastFontScale: document.getElementById('cfg_display_forecastFontScale').value
+        });
     }
 
     function updateConfigViewMode() {
@@ -3327,6 +3373,8 @@
             safety_oppositionAngle: readNum('cfg_safety_oppositionAngle', DEFAULT_CONFIG.safety_oppositionAngle),
             safety_oppositionMinWind: readNum('cfg_safety_oppositionMinWind', DEFAULT_CONFIG.safety_oppositionMinWind),
             safety_oppositionMinCurrent: readNum('cfg_safety_oppositionMinCurrent', DEFAULT_CONFIG.safety_oppositionMinCurrent),
+            display_dateFontScale: readNum('cfg_display_dateFontScale', DEFAULT_CONFIG.display_dateFontScale),
+            display_forecastFontScale: readNum('cfg_display_forecastFontScale', DEFAULT_CONFIG.display_forecastFontScale),
         };
         saveMyLocations();
         updateDashboard();
@@ -3914,7 +3962,7 @@
             btn.className = `date-btn ${idx === 0 ? 'active' : ''}`;
             btn.onclick = () => selectDate(idx);
             
-            let lunarHtml = d.lunarLabel ? `<span style="font-size: 0.72rem; color: var(--accent-blue); font-weight: 500; margin-top: 2px;">${d.lunarLabel}</span>` : '';
+            let lunarHtml = d.lunarLabel ? `<span class="date-lunar" style="color: var(--accent-blue); font-weight: 500; margin-top: 2px;">${d.lunarLabel}</span>` : '';
 
             btn.innerHTML = `
                 <div class="date-top">
