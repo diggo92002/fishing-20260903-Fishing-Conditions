@@ -36,8 +36,8 @@
             --border-color: #334155;
             --ecmwf-color: #a855f7;
             --noaa-color: #3b82f6;
-            --date-font-scale: 1;
-            --forecast-font-scale: 1;
+            --date-font-scale: 1.6;
+            --forecast-font-scale: 1.6;
         }
 
         body {
@@ -2071,21 +2071,21 @@
                         <div class="config-row">
                             <label>日期列字型大小：</label>
                             <select id="cfg_display_dateFontScale" onchange="previewDisplayFontScale()">
-                                <option value="1">100%（預設）</option>
+                                <option value="1">100%</option>
                                 <option value="1.15">115%</option>
                                 <option value="1.3">130%</option>
                                 <option value="1.45">145%</option>
-                                <option value="1.6">160%</option>
+                                <option value="1.6">160%（預設）</option>
                             </select>
                         </div>
                         <div class="config-row">
                             <label>海象表格字型大小：</label>
                             <select id="cfg_display_forecastFontScale" onchange="previewDisplayFontScale()">
-                                <option value="1">100%（預設）</option>
+                                <option value="1">100%</option>
                                 <option value="1.15">115%</option>
                                 <option value="1.3">130%</option>
                                 <option value="1.45">145%</option>
-                                <option value="1.6">160%</option>
+                                <option value="1.6">160%（預設）</option>
                             </select>
                         </div>
                     </div>
@@ -2402,14 +2402,16 @@
         safety_oppositionAngle: 135,
         safety_oppositionMinWind: 8.0,
         safety_oppositionMinCurrent: 0.5,
-        display_dateFontScale: 1,
-        display_forecastFontScale: 1
+        display_dateFontScale: 1.6,
+        display_forecastFontScale: 1.6
     };
 
     let myLocations = {};
     let currentLocationKey = 'longdong';
     let selectedDateIndex = 0;
     const DASHBOARD_PREFERENCES_KEY = 'sunnyfish_dashboard_preferences_v1';
+    const DISPLAY_FONT_PREFERENCES_KEY = 'sunnyfish_display_font_preferences_v1';
+    let sharedDisplayFontPreferences = { ...DEFAULT_CONFIG };
     let savedDashboardPreferences = null;
     let isHorizontalLayout = true;
     let timeStep = 1;
@@ -2453,6 +2455,10 @@
     }
 
     function loadMyLocations() {
+        try {
+            const savedFonts = localStorage.getItem(DISPLAY_FONT_PREFERENCES_KEY);
+            if (savedFonts) sharedDisplayFontPreferences = { ...sharedDisplayFontPreferences, ...JSON.parse(savedFonts) };
+        } catch (e) { /* use defaults */ }
         const saved = localStorage.getItem('sunnyfish_locations_v50');
         if (saved) {
             try { myLocations = JSON.parse(saved); } catch (e) { myLocations = {}; }
@@ -3224,9 +3230,9 @@
         document.getElementById('cfg_safety_oppositionAngle').value = loc.config?.safety_oppositionAngle ?? DEFAULT_CONFIG.safety_oppositionAngle;
         document.getElementById('cfg_safety_oppositionMinWind').value = loc.config?.safety_oppositionMinWind ?? DEFAULT_CONFIG.safety_oppositionMinWind;
         document.getElementById('cfg_safety_oppositionMinCurrent').value = loc.config?.safety_oppositionMinCurrent ?? DEFAULT_CONFIG.safety_oppositionMinCurrent;
-        document.getElementById('cfg_display_dateFontScale').value = String(loc.config?.display_dateFontScale ?? DEFAULT_CONFIG.display_dateFontScale);
-        document.getElementById('cfg_display_forecastFontScale').value = String(loc.config?.display_forecastFontScale ?? DEFAULT_CONFIG.display_forecastFontScale);
-        applyDisplayFontScale(loc.config);
+        document.getElementById('cfg_display_dateFontScale').value = String(sharedDisplayFontPreferences.display_dateFontScale ?? DEFAULT_CONFIG.display_dateFontScale);
+        document.getElementById('cfg_display_forecastFontScale').value = String(sharedDisplayFontPreferences.display_forecastFontScale ?? DEFAULT_CONFIG.display_forecastFontScale);
+        applyDisplayFontScale(sharedDisplayFontPreferences);
         
         updateConfigViewMode();
     }
@@ -3249,7 +3255,7 @@
             const scale = Number(value);
             return Number.isFinite(scale) && scale >= 1 && scale <= 1.6 ? scale : fallback;
         };
-        const cfg = config || myLocations[currentLocationKey]?.config || DEFAULT_CONFIG;
+        const cfg = config || sharedDisplayFontPreferences || DEFAULT_CONFIG;
         document.documentElement.style.setProperty('--date-font-scale', readScale(cfg.display_dateFontScale, DEFAULT_CONFIG.display_dateFontScale));
         document.documentElement.style.setProperty('--forecast-font-scale', readScale(cfg.display_forecastFontScale, DEFAULT_CONFIG.display_forecastFontScale));
     }
@@ -3376,6 +3382,11 @@
             display_dateFontScale: readNum('cfg_display_dateFontScale', DEFAULT_CONFIG.display_dateFontScale),
             display_forecastFontScale: readNum('cfg_display_forecastFontScale', DEFAULT_CONFIG.display_forecastFontScale),
         };
+        sharedDisplayFontPreferences = {
+            display_dateFontScale: loc.config.display_dateFontScale,
+            display_forecastFontScale: loc.config.display_forecastFontScale
+        };
+        localStorage.setItem(DISPLAY_FONT_PREFERENCES_KEY, JSON.stringify(sharedDisplayFontPreferences));
         saveMyLocations();
         updateDashboard();
         const configBox = document.getElementById('configBox');
@@ -3389,6 +3400,11 @@
         const loc = myLocations[currentLocationKey];
         if (!loc) return;
         loc.config = { ...DEFAULT_CONFIG };
+        sharedDisplayFontPreferences = {
+            display_dateFontScale: DEFAULT_CONFIG.display_dateFontScale,
+            display_forecastFontScale: DEFAULT_CONFIG.display_forecastFontScale
+        };
+        localStorage.setItem(DISPLAY_FONT_PREFERENCES_KEY, JSON.stringify(sharedDisplayFontPreferences));
         saveMyLocations();
         loadConfigToUI();
         updateDashboard();
