@@ -36,9 +36,12 @@
             --border-color: #334155;
             --ecmwf-color: #a855f7;
             --noaa-color: #3b82f6;
-            --date-font-scale: 1.6;
-            --forecast-font-scale: 1.6;
+            --date-font-scale: 1;
+            --forecast-font-scale: 1;
         }
+
+        /* 全站固定放大為 160%，不再提供個別字級調整。 */
+        html { font-size: 160%; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -334,6 +337,9 @@
         .model-tag.tide { background-color: rgba(34, 197, 94, 0.2); color: var(--success-color); border: 1px solid var(--success-color); }
 
         .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+        #boatBox .boat-collapse-btn { margin-left: 6px; white-space: nowrap; }
+        #boatBox.boat-collapsed > div:not(:first-child),
+        #boatBox.boat-collapsed > div:first-child > :not(:first-child) { display: none; }
         
         .result-box {
             background-color: #0f172a;
@@ -432,6 +438,13 @@
 
         .config-section-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 8px; color: var(--accent-blue); }
         .config-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.8rem; }
+        /* 字級已固定為全站 160%，隱藏舊版的個別字級選項。 */
+        .config-row:has(#cfg_display_dateFontScale),
+        .config-row:has(#cfg_display_forecastFontScale) { display: none; }
+        #dateCard .compact-section-title { justify-content: space-between; }
+        #dateCard .compact-section-title .compact-activity-row { margin-left: auto; }
+        #tideSourceNote, #modeDescription { display: none !important; }
+        #supBox .risk-metrics + div { display: none; }
         .common-config-header {
             display: flex;
             align-items: center;
@@ -1773,6 +1786,65 @@
             .map-layer-info, .map-layer-legend { font-size: 0.49rem; }
         }
 
+        /* 160% 字級下保留日期農曆列的完整高度，避免被橫向捲軸遮住。 */
+        body.app-shell.mobile-version #dateCard .date-selector {
+            padding-bottom: 8px;
+            scrollbar-width: none;
+        }
+        body.app-shell.mobile-version #dateCard .date-selector::-webkit-scrollbar {
+            display: none;
+        }
+        body.app-shell.mobile-version #dateCard .date-btn {
+            height: 50px;
+        }
+        body.app-shell.mobile-version #dateCard .compact-activity-row {
+            transform: translateY(-4px);
+        }
+
+        /* 日期按鈕加大，並將活動模式收進預定出海時間標題列的右側。 */
+        body.app-shell.mobile-version #dateCard .date-selector {
+            gap: 6px;
+            margin-top: 10px !important;
+            touch-action: pan-x;
+            overscroll-behavior-x: contain;
+            scroll-snap-type: x mandatory;
+        }
+        body.app-shell.mobile-version #dateCard .date-btn {
+            min-width: 76px;
+            flex-basis: 76px;
+            height: 58px;
+        }
+        body.app-shell.mobile-version #dateCard .date-week { font-size: 0.5rem; }
+        body.app-shell.mobile-version #dateCard .date-main { font-size: 0.62rem; }
+        body.app-shell.mobile-version #dateCard .date-btn .date-top .date-lunar { font-size: 0.44rem !important; }
+        body.app-shell.mobile-version #dateCard .compact-section-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        body.app-shell.mobile-version #dateCard .compact-section-title .compact-activity-row {
+            display: grid;
+            grid-template-columns: auto minmax(82px, 1fr);
+            align-items: center;
+            width: auto !important;
+            margin: 0 0 0 auto;
+            transform: none;
+        }
+        body.app-shell.mobile-version #dateCard .time-control-row {
+            grid-template-columns: minmax(132px, 1fr) minmax(142px, 1fr);
+            grid-template-areas: "start window";
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 2px;
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group {
+            grid-template-columns: max-content minmax(62px, 1fr);
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group select {
+            width: 100%;
+        }
+
     </style>
 </head>
 <body class="app-shell mobile-version">
@@ -2507,7 +2579,9 @@
             locationKey: currentLocationKey,
             startTime: startTime.value,
             windowSize: windowSize.value,
-            activityMode: activityMode.value
+            activityMode: activityMode.value,
+            timeStep,
+            boatCollapsed: document.getElementById('boatBox')?.classList.contains('boat-collapsed') ?? false
         };
 
         // Keep the in-memory copy current too, so this remains reliable even if
@@ -2522,7 +2596,7 @@
 
     function restoreDashboardPreferences() {
         if (!savedDashboardPreferences) return;
-        const { startTime, windowSize, activityMode } = savedDashboardPreferences;
+        const { startTime, windowSize, activityMode, timeStep: savedTimeStep, boatCollapsed } = savedDashboardPreferences;
         const setIfAvailable = (id, value) => {
             const select = document.getElementById(id);
             if (select && Array.from(select.options).some(option => option.value === String(value))) {
@@ -2532,11 +2606,31 @@
         setIfAvailable('startTime', startTime);
         setIfAvailable('windowSize', windowSize);
         setIfAvailable('activityMode', activityMode);
+        if ([1, 2, 3].includes(Number(savedTimeStep))) timeStep = Number(savedTimeStep);
+        setBoatCollapsed(boatCollapsed === true);
     }
 
     function handleDashboardPreferenceChange() {
         saveDashboardPreferences();
         updateDashboard();
+    }
+
+    function setBoatCollapsed(collapsed) {
+        const boatBox = document.getElementById('boatBox');
+        const button = document.getElementById('toggleBoatBoxBtn');
+        if (!boatBox) return;
+        boatBox.classList.toggle('boat-collapsed', collapsed);
+        if (button) {
+            button.textContent = collapsed ? '展開' : '隱藏';
+            button.setAttribute('aria-expanded', String(!collapsed));
+        }
+    }
+
+    function toggleBoatBox() {
+        const boatBox = document.getElementById('boatBox');
+        if (!boatBox) return;
+        setBoatCollapsed(!boatBox.classList.contains('boat-collapsed'));
+        saveDashboardPreferences();
     }
 
     function saveMyLocations() {
@@ -3250,14 +3344,10 @@
         }
     }
 
-    function applyDisplayFontScale(config) {
-        const readScale = (value, fallback) => {
-            const scale = Number(value);
-            return Number.isFinite(scale) && scale >= 1 && scale <= 1.6 ? scale : fallback;
-        };
-        const cfg = config || sharedDisplayFontPreferences || DEFAULT_CONFIG;
-        document.documentElement.style.setProperty('--date-font-scale', readScale(cfg.display_dateFontScale, DEFAULT_CONFIG.display_dateFontScale));
-        document.documentElement.style.setProperty('--forecast-font-scale', readScale(cfg.display_forecastFontScale, DEFAULT_CONFIG.display_forecastFontScale));
+    function applyDisplayFontScale() {
+        // 保留相容舊設定資料，但不再允許它們改變固定的全站字級。
+        document.documentElement.style.setProperty('--date-font-scale', '1');
+        document.documentElement.style.setProperty('--forecast-font-scale', '1');
     }
 
     function previewDisplayFontScale() {
@@ -3972,6 +4062,23 @@
         initMap();
 
         const dateSelector = document.getElementById('dateSelector');
+        const departureTitle = document.querySelector('#dateCard .compact-section-title');
+        const activityModeControl = document.querySelector('#dateCard .compact-activity-row');
+        if (departureTitle && activityModeControl) departureTitle.appendChild(activityModeControl);
+        ['cfg_display_dateFontScale', 'cfg_display_forecastFontScale'].forEach(id => {
+            const row = document.getElementById(id)?.closest('.config-row');
+            if (row) row.style.setProperty('display', 'none', 'important');
+        });
+        const boatHeader = document.querySelector('#boatBox > div:first-child > div:first-child');
+        if (boatHeader && !document.getElementById('toggleBoatBoxBtn')) {
+            const button = document.createElement('button');
+            button.id = 'toggleBoatBoxBtn';
+            button.className = 'toggle-btn boat-collapse-btn';
+            button.type = 'button';
+            button.onclick = toggleBoatBox;
+            boatHeader.appendChild(button);
+        }
+        setBoatCollapsed(savedDashboardPreferences?.boatCollapsed === true);
         dateSelector.innerHTML = '';
         dates.forEach((d, idx) => {
             const btn = document.createElement('button');
@@ -4017,6 +4124,7 @@
 
     function toggleTimeStep() {
         timeStep = timeStep === 1 ? 2 : (timeStep === 2 ? 3 : 1);
+        saveDashboardPreferences();
         updateDashboard();
     }
 
@@ -4557,8 +4665,10 @@
         const boatResult = calculateBoatScore(windowData, cfg, activeDateInfo.isSpringTide);
         const boatBox = document.getElementById('boatBox');
         const boatBadge = document.getElementById('boatBadge');
+        const wasBoatCollapsed = boatBox.classList.contains('boat-collapsed');
 
         boatBox.className = `result-box ${boatResult.status.styleClass}`;
+        boatBox.classList.toggle('boat-collapsed', wasBoatCollapsed);
         boatBadge.className = `status-badge ${boatResult.status.styleClass}`;
         boatBadge.textContent = boatResult.status.text;
         document.getElementById('boatScoreText').textContent = boatResult.totalScore === null ? '--' : `${boatResult.totalScore} 分`;
