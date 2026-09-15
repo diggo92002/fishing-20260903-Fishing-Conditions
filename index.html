@@ -337,7 +337,27 @@
         .model-tag.tide { background-color: rgba(34, 197, 94, 0.2); color: var(--success-color); border: 1px solid var(--success-color); }
 
         .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-        #boatBox .boat-collapse-btn { margin-left: 6px; white-space: nowrap; }
+        .boat-header {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .boat-header-title {
+            min-width: 0;
+            font-weight: bold;
+            line-height: 1.35;
+        }
+        #boatScoreText {
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+        #boatBox .boat-collapse-btn {
+            margin: 0;
+            padding: 4px 10px;
+            white-space: nowrap;
+        }
         #boatBox.boat-collapsed > div:not(:first-child),
         #boatBox.boat-collapsed > div:first-child > :not(:first-child) { display: none; }
         
@@ -1048,6 +1068,22 @@
         body.app-shell.mobile-version #boatBox #boatRating {
             font-size: 0.66rem !important;
             margin-bottom: 3px !important;
+        }
+        body.app-shell.mobile-version #boatBox .boat-header {
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 6px;
+            margin-bottom: 5px !important;
+        }
+        body.app-shell.mobile-version #boatBox .boat-header-title {
+            font-size: 0.78rem;
+            line-height: 1.3;
+        }
+        body.app-shell.mobile-version #boatBox .boat-collapse-btn {
+            width: auto;
+            min-width: 0;
+            min-height: 30px;
+            padding: 3px 8px;
+            font-size: 0.68rem;
         }
 
         /* ===== Mobile compact pass 4: screenshot-aligned ===== */
@@ -2071,8 +2107,8 @@
             <!-- 船釣評估結果框 -->
             <div class="result-box compact-result-box" id="boatBox">
                 <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-weight: bold;">🛥️ 搭船作釣評估 (魚情優先模型)</span>
+                    <div class="boat-header">
+                        <span class="boat-header-title">🛥️ 搭船作釣評估 </span>
                         <span id="boatScoreText" style="font-size: 1.2rem; font-weight: bold; color: var(--accent-blue);">- 分</span>
                     </div>
                     <div id="boatBadge" class="status-badge">計算中...</div>
