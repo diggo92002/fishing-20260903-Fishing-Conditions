@@ -2027,9 +2027,20 @@
     <div class="card" id="forecastCard">
         <div class="model-badges">
             <span class="model-tag ecmwf">⚡ ECMWF IFS HRES (大氣風場、氣壓與風向)</span>
-            <span class="model-tag wam">🌊 ECMWF WAM (高解析波浪與涌浪)</span>
+            <span class="model-tag wam" id="wamModelBadge">🌊 ECMWF WAM (高解析波浪與涌浪)</span>
             <span class="model-tag tide">🌊 模式海面高度（含潮汐；近岸僅供參考）</span>
-
+        </div>
+        <div class="controls-container" style="margin: 8px 0 12px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="control-group">
+                <label for="waveSourceSelect">🌊 波浪資料檢視：</label>
+                <select id="waveSourceSelect" onchange="handleWaveSourceChange()">
+                    <option value="ecmwf_wam">ECMWF WAM（預設，9 km）</option>
+                    <option value="meteofrance_wave">Météo-France MFWAM（8 km）</option>
+                    <option value="ncep_gfswave016">NOAA GFS Wave（0.16°）</option>
+                    <option value="ncep_gfswave025">NOAA GFS Wave（0.25°）</option>
+                </select>
+            </div>
+            <span id="waveSourceHint" style="font-size: 0.78rem; color: var(--text-muted);">本工具的浪高、涌浪與安全評估使用 ECMWF WAM。</span>
         </div>
 
         <div class="table-container horizontal" id="tableContainer">
@@ -2527,6 +2538,13 @@
     let astroDataByDate = [];
     let tideExtremesByDate = [];
     let tideDataSource = 'none';
+    let selectedWaveSource = 'ecmwf_wam';
+    const WAVE_MODELS = {
+        ecmwf_wam: { apiModel: 'ecmwf_wam', name: 'ECMWF WAM', detail: '9 km／逐時／最長 15 天' },
+        meteofrance_wave: { apiModel: 'meteofrance_wave', name: 'Météo-France MFWAM', detail: '8 km／每 3 小時／最長 10 天' },
+        ncep_gfswave016: { apiModel: 'ncep_gfswave016', name: 'NOAA GFS Wave 0.16°', detail: '約 16 km／逐時／最長 16 天' },
+        ncep_gfswave025: { apiModel: 'ncep_gfswave025', name: 'NOAA GFS Wave 0.25°', detail: '約 25 km／逐時／最長 16 天' }
+    };
 
     let map;
     let currentMarker = null;
@@ -2609,6 +2627,7 @@
         const startTime = document.getElementById('startTime');
         const windowSize = document.getElementById('windowSize');
         const activityMode = document.getElementById('activityMode');
+        const waveSource = document.getElementById('waveSourceSelect');
         if (!startTime || !windowSize || !activityMode) return;
 
         const preferences = {
@@ -2616,6 +2635,7 @@
             startTime: startTime.value,
             windowSize: windowSize.value,
             activityMode: activityMode.value,
+            waveSource: waveSource?.value || 'ecmwf_wam',
             timeStep,
             boatCollapsed: document.getElementById('boatBox')?.classList.contains('boat-collapsed') ?? false
         };
@@ -2632,7 +2652,7 @@
 
     function restoreDashboardPreferences() {
         if (!savedDashboardPreferences) return;
-        const { startTime, windowSize, activityMode, timeStep: savedTimeStep, boatCollapsed } = savedDashboardPreferences;
+        const { startTime, windowSize, activityMode, waveSource, timeStep: savedTimeStep, boatCollapsed } = savedDashboardPreferences;
         const setIfAvailable = (id, value) => {
             const select = document.getElementById(id);
             if (select && Array.from(select.options).some(option => option.value === String(value))) {
@@ -2642,6 +2662,9 @@
         setIfAvailable('startTime', startTime);
         setIfAvailable('windowSize', windowSize);
         setIfAvailable('activityMode', activityMode);
+        setIfAvailable('waveSourceSelect', waveSource || 'ecmwf_wam');
+        selectedWaveSource = document.getElementById('waveSourceSelect')?.value || 'ecmwf_wam';
+        applyWaveSourceView();
         if ([1, 2, 3].includes(Number(savedTimeStep))) timeStep = Number(savedTimeStep);
         setBoatCollapsed(boatCollapsed === true);
     }
@@ -2649,6 +2672,25 @@
     function handleDashboardPreferenceChange() {
         saveDashboardPreferences();
         updateDashboard();
+    }
+
+    function handleWaveSourceChange() {
+        selectedWaveSource = document.getElementById('waveSourceSelect')?.value || 'ecmwf_wam';
+        applyWaveSourceView();
+        saveDashboardPreferences();
+        fetchSunnyFishData();
+    }
+
+    function getSelectedWaveModel() {
+        return WAVE_MODELS[selectedWaveSource] || WAVE_MODELS.ecmwf_wam;
+    }
+
+    function applyWaveSourceView() {
+        const model = getSelectedWaveModel();
+        const hint = document.getElementById('waveSourceHint');
+        const badge = document.getElementById('wamModelBadge');
+        if (hint) hint.textContent = `浪高、涌浪與安全評估目前使用 ${model.name}（${model.detail}）。`;
+        if (badge) badge.textContent = `🌊 ${model.name}（波浪與涌浪）`;
     }
 
     function setBoatCollapsed(collapsed) {
@@ -3634,8 +3676,9 @@
         statusEl.textContent = '⏳ 同步中';
         statusEl.style.color = 'var(--accent-blue)';
 
+        const waveModel = getSelectedWaveModel();
         const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,surface_pressure,cloud_cover,precipitation,weather_code,visibility,is_day&daily=sunrise,sunset,moonrise,moonset&models=ecmwf_ifs&timezone=Asia%2FTaipei&wind_speed_unit=kn&forecast_days=14`;
-        const waveUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,swell_wave_height,swell_wave_direction,swell_wave_period&models=ecmwf_wam&timezone=Asia%2FTaipei&cell_selection=sea&forecast_days=14`;
+        const waveUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,swell_wave_height,swell_wave_direction,swell_wave_period&models=${waveModel.apiModel}&timezone=Asia%2FTaipei&cell_selection=sea&forecast_days=14`;
         // 雷雨代碼改採 Open-Meteo Best Match，避免把 ECMWF IFS 的 weather_code 當成可靠雷雨預報。
         const hazardUrl = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=weather_code,visibility&timezone=Asia%2FTaipei&forecast_days=14`;
         const currentUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=ocean_current_velocity,ocean_current_direction&models=meteofrance_currents&timezone=Asia%2FTaipei&wind_speed_unit=kn&cell_selection=sea&forecast_days=14`;
@@ -3666,7 +3709,7 @@
 
             const [weatherRes, waveRes, currentRes] = await Promise.all([
                 readApiResponse(weatherResRaw, 'ECMWF IFS'),
-                readApiResponse(waveResRaw, 'ECMWF WAM'),
+                readApiResponse(waveResRaw, waveModel.name),
                 readApiResponse(currentResRaw, 'Ocean Current')
             ]);
 
