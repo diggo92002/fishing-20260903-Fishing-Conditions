@@ -2051,6 +2051,19 @@
             font-size: 0.66rem !important;
             padding: 3px 7px !important;
         }
+        body.app-shell.mobile-version .tide-sun-times {
+            margin-top: 2px;
+            color: var(--text-muted);
+            font-size: 0.58rem;
+            line-height: 1.25;
+        }
+        body.app-shell.mobile-version .tide-chart-heading {
+            font-size: 0.6rem !important;
+        }
+        body.app-shell.mobile-version #tideChartAxis {
+            font-size: 0.64rem !important;
+            margin-top: 4px !important;
+        }
     </style>
 </head>
 <body class="app-shell mobile-version">
@@ -2232,12 +2245,13 @@
             </div>
         </div>
         <div class="tide-chart-container">
-            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px;">
+            <div class="tide-chart-heading" style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px;">
                 <span id="tideChartTitle">潮位走勢圖</span>
                 <span>單位：公尺 (m)</span>
             </div>
             <!-- SVG 潮位走勢圖 -->
             <svg id="tideSvg" class="tide-svg" viewBox="0 0 800 160" preserveAspectRatio="none"></svg>
+            <div id="tideSunTimes" class="tide-sun-times">日出 --:--　日落 --:--</div>
             <div id="tideChartAxis" style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-top: 5px; padding: 0 5px;">
                 <span>--</span>
             </div>
@@ -4678,8 +4692,10 @@
         const axisEl = document.getElementById('tideChartAxis');
         if (axisEl && tripEnd) {
             const span = Math.max(tripEnd.chartOffset || 0, 1);
-            const tickCount = Math.min(6, span);
             const ticks = [];
+            // Adapt to the displayed range while keeping the compact axis easy
+            // to read: at most six evenly distributed, real hourly positions.
+            const tickCount = Math.min(5, span);
             for (let i = 0; i <= tickCount; i++) {
                 const offset = Math.round((span * i) / tickCount);
                 const item = dayData.find(d => d.chartOffset === offset);
@@ -4726,22 +4742,21 @@
         badgeEl.style.padding = '3px 8px';
         badgeEl.style.marginBottom = '0';
 
-        // Show context for the actual trip: one tide turn before it, every turn
-        // inside it, and one tide turn after it. Do not dump unrelated turns
-        // from the rest of either calendar day into the compact card list.
-        const tripStartMinute = (dayData[0]?.chartAbsoluteHour || 0) * 60;
-        const tripEndMinute = (tripEnd?.chartAbsoluteHour || 0) * 60;
+        // The chart deliberately includes one hour before and after the
+        // selected evaluation window.  Only tide turns in that visible context
+        // are listed, rather than unrelated turns elsewhere in the day.
+        const chartStartMinute = (dayData[0]?.chartAbsoluteHour || 0) * 60;
+        const chartEndMinute = (tripEnd?.chartAbsoluteHour || 0) * 60;
         const allTripExtremes = [];
-        for (let dayOffset = -1; dayOffset <= Math.floor(tripEndMinute / 1440); dayOffset++) {
+        for (let dayOffset = -1; dayOffset <= Math.floor(chartEndMinute / 1440); dayOffset++) {
             (tideExtremesByDate[selectedDateIndex + dayOffset] || []).forEach(ex => {
                 allTripExtremes.push({ ...ex, absoluteMinute: ex.minuteOfDay + (dayOffset * 1440) });
             });
         }
         allTripExtremes.sort((a, b) => a.absoluteMinute - b.absoluteMinute);
-        const beforeTrip = allTripExtremes.filter(ex => ex.absoluteMinute < tripStartMinute).pop();
-        const inTrip = allTripExtremes.filter(ex => ex.absoluteMinute >= tripStartMinute && ex.absoluteMinute <= tripEndMinute);
-        const afterTrip = allTripExtremes.find(ex => ex.absoluteMinute > tripEndMinute);
-        const displayExtremes = [beforeTrip, ...inTrip, afterTrip].filter(Boolean);
+        const displayExtremes = allTripExtremes.filter(ex =>
+            ex.absoluteMinute >= chartStartMinute && ex.absoluteMinute <= chartEndMinute
+        );
 
         extremesGrid.innerHTML = '';
         if (displayExtremes.length) {
@@ -4811,9 +4826,9 @@
         // Tide-turn annotations: each extreme gets a colour-coded dot, an exact
         // value/time label, and a vertical guide to the corresponding X position.
         const extremeMarkers = displayExtremes
-            .filter(ex => ex.absoluteMinute >= tripStartMinute && ex.absoluteMinute <= tripEndMinute)
+            .filter(ex => ex.absoluteMinute >= chartStartMinute && ex.absoluteMinute <= chartEndMinute)
             .map(ex => {
-                const relativeMinutes = ex.absoluteMinute - tripStartMinute;
+                const relativeMinutes = ex.absoluteMinute - chartStartMinute;
                 const x = (relativeMinutes / (chartSpan * 60)) * svgWidth;
                 const y = svgHeight - paddingY - ((ex.height - chartMin) / rangeH) * usableHeight;
                 const isHigh = ex.type === '滿潮';
@@ -4823,7 +4838,7 @@
                 return `
                     <line x1="${x}" y1="${y}" x2="${x}" y2="${svgHeight - 2}" stroke="${color}" stroke-opacity="0.75" stroke-dasharray="4 4" stroke-width="1.5" />
                     <circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="#ffffff" stroke-width="2" />
-                    <text x="${x}" y="${labelY}" text-anchor="middle" fill="${color}" font-size="14" font-weight="700" paint-order="stroke" stroke="#0f172a" stroke-width="3" stroke-linejoin="round">${label}</text>`;
+                    <text x="${x}" y="${labelY}" text-anchor="middle" fill="${color}" font-size="21" font-weight="700" paint-order="stroke" stroke="#0f172a" stroke-width="3" stroke-linejoin="round">${label}</text>`;
             }).join('');
 
         svg.innerHTML = `
@@ -4941,6 +4956,8 @@
         document.getElementById('tideSvg').innerHTML = '<text x="400" y="85" text-anchor="middle" fill="#fbbf24" font-size="18">資料不可用，暫不評估</text>';
         document.getElementById('tideChartTitle').textContent = '潮位走勢圖';
         document.getElementById('tideChartAxis').innerHTML = '<span>--</span>';
+        const tideSunTimes = document.getElementById('tideSunTimes');
+        if (tideSunTimes) tideSunTimes.textContent = '日出 --:--　日落 --:--';
         document.getElementById('tideExtremesGrid').innerHTML = '';
         ['maxWave', 'maxSwellWave', 'maxPeriod', 'maxWind', 'maxGust', 'minVisibility', 'windCurrentOpposition', 'thunderRisk'].forEach(id => {
             const el = document.getElementById(id);
@@ -4973,6 +4990,8 @@
         if (astroDataByDate[selectedDateIndex]) {
             const astro = astroDataByDate[selectedDateIndex];
             document.getElementById('sunTimeDisplay').textContent = `${astro.sunrise} - ${astro.sunset}`;
+            const tideSunTimes = document.getElementById('tideSunTimes');
+            if (tideSunTimes) tideSunTimes.textContent = `☀️ 日出 ${astro.sunrise}　🌇 日落 ${astro.sunset}`;
             document.getElementById('moonTimeDisplay').textContent = `${activeDateInfo.moonIcon} ${activeDateInfo.tideName} (月出 ${astro.moonrise})`;
         }
 
@@ -5027,11 +5046,11 @@
             const item = dayData?.find(d => d.hour === hour);
             if (item) windowData.push(item);
         }
-        // Tide chart uses the same mode as the table: the trip range by default,
-        // or an independent 00:00–24:00 curve in full-day mode.
+        // Give the tide curve one hour of context before and after a trip;
+        // the 24-hour view remains a true 00:00–24:00 daily view.
         const tideChartData = [];
-        const tideChartStartHour = showFullDayForecast ? 0 : startHour;
-        const tideChartEndHour = showFullDayForecast ? 24 : endHour;
+        const tideChartStartHour = showFullDayForecast ? 0 : Math.max(0, startHour - 1);
+        const tideChartEndHour = showFullDayForecast ? 24 : endHour + 1;
         for (let absoluteHour = tideChartStartHour; absoluteHour <= tideChartEndHour; absoluteHour++) {
             const dateOffset = Math.floor(absoluteHour / 24);
             const hour = absoluteHour % 24;
