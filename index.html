@@ -1881,6 +1881,16 @@
             width: 100%;
         }
 
+        /* 2026-09-23 CSS consolidation: keep the mobile touch-target rule in
+           one canonical override, so future mobile button additions inherit it. */
+        :root { --mobile-touch-target: 40px; }
+        @media (max-width: 480px) {
+            body.app-shell.mobile-version :is(.toggle-btn, .delete-btn, .add-btn, select, input[type="number"], input[type="text"]) {
+                min-height: var(--mobile-touch-target);
+                box-sizing: border-box;
+            }
+        }
+
     </style>
 </head>
 <body class="app-shell mobile-version">
@@ -2557,6 +2567,17 @@
     let mapLayerRequestSeq = 0;
     let mapLayerMoveTimer = null;
     const mapLayerCache = new Map();
+
+    /*
+     * 2026-09-23 reliability changes
+     * - One controller/request sequence owns the forecast request. A response for
+     *   an old spot can never overwrite a newer selection.
+     * - When core data cannot be obtained, the UI enters an explicit no-assessment
+     *   state. It must not manufacture realistic-looking weather or safety advice.
+     */
+    let activeForecastController = null;
+    let latestForecastRequestId = 0;
+    let forecastDataAvailable = false;
 
     // 風速（節/kt）轉換為蒲福風級（級）
     function knotsToBeaufort(knots) {
@@ -3673,6 +3694,13 @@
         const loc = myLocations[currentLocationKey];
         if (!loc) return;
 
+        // A new refresh supersedes all older requests for another spot/model.
+        activeForecastController?.abort();
+        const controller = new AbortController();
+        activeForecastController = controller;
+        const requestId = ++latestForecastRequestId;
+        const isCurrentRequest = () => requestId === latestForecastRequestId;
+
         statusEl.textContent = '⏳ 同步中';
         statusEl.style.color = 'var(--accent-blue)';
 
@@ -3687,16 +3715,33 @@
         const tideUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=sea_level_height_msl&models=best_match&timezone=Asia%2FTaipei&cell_selection=sea&past_days=1&forecast_days=14`;
 
         const fetchWithTimeout = (url, timeoutMs = 15000) => {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+            // Timeout belongs to this request only. It must not abort the other
+            // four sources, especially optional tide/hazard requests.
+            let timer;
+            const timeout = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new DOMException('Request timed out', 'TimeoutError')), timeoutMs);
+            });
+            return Promise.race([fetch(url, { signal: controller.signal }), timeout])
+                .finally(() => clearTimeout(timer));
         };
 
         try {
-            const [weatherResRaw, waveResRaw, currentResRaw, tideResRaw, hazardResRaw] = await Promise.all([
+            // Weather, wave, and current are core sources. Tide and hazard data
+            // remain optional so their outage does not invalidate core data.
+            const tideRequest = fetchWithTimeout(tideUrl);
+            const hazardRequest = fetchWithTimeout(hazardUrl);
+            const [weatherResRaw, waveResRaw, currentResRaw] = await Promise.all([
                 fetchWithTimeout(weatherUrl), fetchWithTimeout(waveUrl), fetchWithTimeout(currentUrl),
-                fetchWithTimeout(tideUrl), fetchWithTimeout(hazardUrl)
             ]);
+            const [tideResult, hazardResult] = await Promise.allSettled([
+                tideRequest, hazardRequest
+            ]);
+            if (!isCurrentRequest()) return;
+            // Keep the existing response parser and make a rejected optional
+            // request look like a failed HTTP response handled by its local catch.
+            const unavailableResponse = { ok: false, status: 0, statusText: 'Unavailable', json: async () => null };
+            const tideResRaw = tideResult.status === 'fulfilled' ? tideResult.value : unavailableResponse;
+            const hazardResRaw = hazardResult.status === 'fulfilled' ? hazardResult.value : unavailableResponse;
 
             async function readApiResponse(res, label) {
                 const data = await res.json().catch(() => null);
@@ -3729,6 +3774,7 @@
 
             if (weatherRes?.hourly && waveRes?.hourly && currentRes?.hourly) {
                 tideDataSource = tideRes?.hourly?.sea_level_height_msl ? 'open-meteo' : 'none';
+                forecastDataAvailable = true;
                 statusEl.textContent = tideDataSource === 'open-meteo' ? '✅ 已同步' : '⚠️ 部分同步';
                 statusEl.style.color = tideDataSource === 'open-meteo' ? 'var(--success-color)' : 'var(--warning-color)';
                 if (weatherRes.daily) processAstroData(weatherRes.daily);
@@ -3737,12 +3783,17 @@
                 throw new Error('模型回傳資料結構不完整');
             }
         } catch (err) {
+            if (err?.name === 'AbortError' || !isCurrentRequest()) return;
             console.error('fetchSunnyFishData:', err);
+            forecastDataAvailable = false;
+            currentDataByDate = [];
+            astroDataByDate = [];
+            tideExtremesByDate = [];
+            tideDataSource = 'none';
             statusEl.textContent = '⚠️ 同步失敗';
             statusEl.style.color = 'var(--warning-color)';
-            generateFallbackData();
-            statusEl.textContent = '⚠️ 即時資料讀取失敗，以下為備援資料（僅供測試）';
             statusEl.title = err?.message || '資料來源無法連線';
+            renderDataUnavailableDashboard();
         }
     }
 
@@ -4199,6 +4250,24 @@
         selectedDateIndex = index;
         document.querySelectorAll('.date-btn').forEach((btn, idx) => btn.classList.toggle('active', idx === index));
         updateDashboard();
+        // Keep the complete daily table available, but bring its selected fishing
+        // start hour into view after a date switch. This scrolls the table only;
+        // it does not pan or zoom the map.
+        requestAnimationFrame(scrollForecastTableToStartTime);
+    }
+
+    function scrollForecastTableToStartTime() {
+        const container = document.getElementById('tableContainer');
+        const timeRow = document.querySelector('#forecastTable tr.time-step-row');
+        const startHour = Number.parseInt(document.getElementById('startTime')?.value, 10);
+        if (!container || !timeRow || !Number.isFinite(startHour)) return;
+
+        const columns = Array.from(timeRow.children);
+        const targetCell = columns[startHour + 1]; // first cell is the sticky row label
+        if (!targetCell) return;
+        const stickyWidth = columns[0]?.offsetWidth || 0;
+        const targetLeft = Math.max(0, targetCell.offsetLeft - stickyWidth - 4);
+        container.scrollTo({ left: targetLeft, behavior: 'smooth' });
     }
 
     function toggleTimeStep() {
@@ -4549,8 +4618,38 @@
         });
     }
 
+    // Data failure is deliberately rendered as "not assessed" instead of a
+    // plausible synthetic forecast. This is a safety boundary, not an error UI.
+    function renderDataUnavailableDashboard() {
+        document.getElementById('forecastTable').innerHTML = '';
+        document.getElementById('tideSvg').innerHTML = '<text x="400" y="85" text-anchor="middle" fill="#fbbf24" font-size="18">資料不可用，暫不評估</text>';
+        document.getElementById('tideExtremesGrid').innerHTML = '';
+        ['maxWave', 'maxSwellWave', 'maxPeriod', 'maxWind', 'maxGust', 'minVisibility', 'windCurrentOpposition', 'thunderRisk'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '--';
+        });
+        const supBox = document.getElementById('supBox');
+        const supBadge = document.getElementById('supBadge');
+        const supReasons = document.getElementById('supReasons');
+        supBox.className = 'result-box info';
+        supBadge.className = 'status-badge info';
+        supBadge.textContent = '⚠️ 無法進行安全評估';
+        supReasons.innerHTML = '<li style="color:var(--warning-color)">預報核心資料取得失敗；請重新同步並確認官方海象與警報。</li>';
+        const boatBox = document.getElementById('boatBox');
+        document.getElementById('boatBadge').className = 'status-badge info';
+        document.getElementById('boatBadge').textContent = '⚠️ 魚況不評分';
+        document.getElementById('boatScoreText').textContent = '--';
+        document.getElementById('boatRating').textContent = '資料不可用';
+        boatBox.className = 'result-box info';
+    }
+
     function updateDashboard() {
         updateConfigViewMode();
+
+        if (!forecastDataAvailable) {
+            renderDataUnavailableDashboard();
+            return;
+        }
         
         const activeDateInfo = dates[selectedDateIndex];
         if (astroDataByDate[selectedDateIndex]) {
@@ -4591,7 +4690,18 @@
         }
 
         document.getElementById('resultCardTitle').textContent = `📊 綜合評估結果 (${windowHours}小時窗口 - ${activeDateInfo.tideName})`;
-        document.getElementById('windowDisplay').textContent = `評估區間：${String(startHour).padStart(2, '0')}:00 ~ ${String(endHour % 24).padStart(2, '0')}:00`;
+        // A cross-midnight trip must make the next-day finish explicit rather
+        // than showing two clock times that appear to be on the same date.
+        const endDayOffset = Math.floor(endHour / 24);
+        const endDate = new Date(`${activeDateInfo.fullDate}T00:00:00`);
+        endDate.setDate(endDate.getDate() + endDayOffset);
+        const formatShortDate = date => `${date.getMonth() + 1}/${date.getDate()}`;
+        const startDate = new Date(`${activeDateInfo.fullDate}T00:00:00`);
+        const startText = `${formatShortDate(startDate)} ${String(startHour).padStart(2, '0')}:00`;
+        const endText = `${formatShortDate(endDate)} ${String(endHour % 24).padStart(2, '0')}:00`;
+        document.getElementById('windowDisplay').textContent = endDayOffset > 0
+            ? `評估區間：${startText} → ${endText}（隔日結束）`
+            : `評估區間：${startText} → ${endText}`;
 
         renderTideChart(raw24hData, startHour);
         renderTable(displayData, startHour, endHour);
@@ -4758,6 +4868,14 @@
         document.getElementById('scorePressure').textContent = scoreText(boatResult.details.pressureScore);
         document.getElementById('scoreTemp').textContent = scoreText(boatResult.details.tempScore);
         document.getElementById('scoreWindFlow').textContent = scoreText(boatResult.details.windFlowScore);
+    }
+
+    // PWA: cache the application shell only. Forecast responses are intentionally
+    // not cached here, so an old marine forecast is never mistaken for live data.
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Service worker registration failed', error));
+        });
     }
 
     window.onload = init;
