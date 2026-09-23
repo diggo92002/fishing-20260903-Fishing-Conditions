@@ -126,6 +126,11 @@
             border-color: var(--accent-blue);
             background-color: rgba(56, 189, 248, 0.1);
         }
+        .toggle-btn.active {
+            background-color: var(--accent-blue);
+            color: #000;
+            border-color: var(--accent-blue);
+        }
 
         .delete-btn {
             background-color: rgba(239, 68, 68, 0.2);
@@ -1889,6 +1894,109 @@
                 min-height: var(--mobile-touch-target);
                 box-sizing: border-box;
             }
+            /* Keep departure controls compact and put the view switch directly
+               after the evaluation-window selector. */
+            body.app-shell.mobile-version #dateCard .time-control-row {
+                grid-template-columns: max-content max-content auto;
+                grid-template-areas: "start window full";
+            }
+            body.app-shell.mobile-version #dateCard .full-day-view-control {
+                grid-area: full;
+                margin: 0;
+                width: auto !important;
+            }
+            body.app-shell.mobile-version #dateCard .full-day-view-control .toggle-btn {
+                width: auto !important;
+                min-width: 54px;
+                height: 27px;
+                min-height: 27px;
+                padding: 2px 6px;
+                font-size: 0.58rem;
+            }
+            body.app-shell.mobile-version #dateCard .inline-time-group {
+                grid-template-columns: auto 48px;
+            }
+            body.app-shell.mobile-version #dateCard .inline-time-group:nth-child(2) {
+                grid-template-columns: auto 56px;
+            }
+            body.app-shell.mobile-version #dateCard .inline-time-group select {
+                width: 48px !important;
+            }
+            body.app-shell.mobile-version #dateCard .inline-time-group:nth-child(2) select {
+                width: 56px !important;
+            }
+        }
+
+        /* Final compact departure row: apply at every mobile-version width,
+           including wider phones/tablets where the 480px media query does not run. */
+        body.app-shell.mobile-version #dateCard #windowDisplay {
+            display: none !important;
+        }
+        body.app-shell.mobile-version #dateCard .time-control-row {
+            display: grid !important;
+            grid-template-columns: max-content max-content max-content !important;
+            grid-template-areas: "start window full" !important;
+            gap: 4px !important;
+            align-items: center;
+            overflow: hidden !important;
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group {
+            width: auto !important;
+            grid-template-columns: auto 64px !important;
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group:nth-child(2) {
+            grid-template-columns: auto 72px !important;
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group select {
+            width: 64px !important;
+            height: 30px !important;
+            min-height: 30px !important;
+            padding: 2px 5px !important;
+            font-size: 0.68rem !important;
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group:nth-child(2) select {
+            width: 72px !important;
+        }
+        body.app-shell.mobile-version #dateCard .inline-time-group label {
+            font-size: 0.68rem !important;
+        }
+        body.app-shell.mobile-version #dateCard .full-day-view-control {
+            grid-area: full;
+            width: auto !important;
+            margin: 0 !important;
+        }
+        body.app-shell.mobile-version #dateCard .full-day-view-control .toggle-btn {
+            width: auto !important;
+            min-width: 70px;
+            height: 30px !important;
+            min-height: 30px !important;
+            padding: 2px 8px !important;
+            font-size: 0.72rem !important;
+        }
+        /* Keep the wave-model label and selector together on one compact line. */
+        body.app-shell.mobile-version #forecastCard .forecast-source-controls {
+            display: block !important;
+            padding: 6px 8px !important;
+        }
+        body.app-shell.mobile-version #forecastCard .forecast-wave-control {
+            display: grid !important;
+            grid-template-columns: max-content minmax(0, 1fr);
+            align-items: center;
+            gap: 5px;
+            width: 100% !important;
+        }
+        body.app-shell.mobile-version #forecastCard .forecast-wave-control label {
+            margin: 0 !important;
+            font-size: 0.7rem !important;
+            white-space: nowrap;
+        }
+        body.app-shell.mobile-version #forecastCard .forecast-wave-control select {
+            width: 100% !important;
+            min-width: 0;
+            height: 32px !important;
+            min-height: 32px !important;
+            padding: 2px 6px !important;
+            font-size: 0.68rem !important;
         }
 
     </style>
@@ -2011,6 +2119,9 @@
                     <option value="12" selected>12 小時</option>
                 </select>
             </div>
+            <div class="control-group full-day-view-control">
+                <button type="button" id="toggleFullDayForecastBtn" class="toggle-btn" onclick="toggleFullDayForecast()">24 小時</button>
+            </div>
             <div class="control-group mobile-activity-row compact-activity-row" style="background: #0f172a; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">
                 <label for="activityMode" style="font-size: 0.85rem;"><strong>活動模式：</strong></label>
                 <select id="activityMode" onchange="handleDashboardPreferenceChange()" style="padding: 4px 8px; font-size: 0.85rem;">
@@ -2040,8 +2151,8 @@
             <span class="model-tag wam" id="wamModelBadge">🌊 ECMWF WAM (高解析波浪與涌浪)</span>
             <span class="model-tag tide">🌊 模式海面高度（含潮汐；近岸僅供參考）</span>
         </div>
-        <div class="controls-container" style="margin: 8px 0 12px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px;">
-            <div class="control-group">
+        <div class="controls-container forecast-source-controls" style="margin: 8px 0 12px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px;">
+            <div class="control-group forecast-wave-control">
                 <label for="waveSourceSelect">🌊 波浪資料檢視：</label>
                 <select id="waveSourceSelect" onchange="handleWaveSourceChange()">
                     <option value="ecmwf_wam">ECMWF WAM（預設，9 km）</option>
@@ -2050,7 +2161,6 @@
                     <option value="ncep_gfswave025">NOAA GFS Wave（0.25°）</option>
                 </select>
             </div>
-            <span id="waveSourceHint" style="font-size: 0.78rem; color: var(--text-muted);">本工具的浪高、涌浪與安全評估使用 ECMWF WAM。</span>
         </div>
 
         <div class="table-container horizontal" id="tableContainer">
@@ -2071,13 +2181,13 @@
         </div>
         <div class="tide-chart-container">
             <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px;">
-                <span>24小時模式潮位走勢圖（虛線為目前選定時間）</span>
+                <span id="tideChartTitle">座釣區間潮位走勢圖</span>
                 <span>單位：公尺 (m)</span>
             </div>
             <!-- SVG 潮位走勢圖 -->
             <svg id="tideSvg" class="tide-svg" viewBox="0 0 800 160" preserveAspectRatio="none"></svg>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-top: 5px; padding: 0 5px;">
-                <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span><span>24</span>
+            <div id="tideChartAxis" style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-top: 5px; padding: 0 5px;">
+                <span>--</span>
             </div>
 
             <!-- 乾滿潮四個極值卡片詳情 -->
@@ -2544,6 +2654,7 @@
     let savedDashboardPreferences = null;
     let isHorizontalLayout = true;
     let timeStep = 1;
+    let showFullDayForecast = false;
     let currentDataByDate = [];
     let astroDataByDate = [];
     let tideExtremesByDate = [];
@@ -4250,29 +4361,37 @@
         selectedDateIndex = index;
         document.querySelectorAll('.date-btn').forEach((btn, idx) => btn.classList.toggle('active', idx === index));
         updateDashboard();
-        // Keep the complete daily table available, but bring its selected fishing
-        // start hour into view after a date switch. This scrolls the table only;
-        // it does not pan or zoom the map.
-        requestAnimationFrame(scrollForecastTableToStartTime);
     }
 
-    function scrollForecastTableToStartTime() {
+    function scrollForecastTableToStartTime(behavior = 'auto') {
         const container = document.getElementById('tableContainer');
         const timeRow = document.querySelector('#forecastTable tr.time-step-row');
-        const startHour = Number.parseInt(document.getElementById('startTime')?.value, 10);
-        if (!container || !timeRow || !Number.isFinite(startHour)) return;
+        if (!container || !timeRow) return;
 
         const columns = Array.from(timeRow.children);
-        const targetCell = columns[startHour + 1]; // first cell is the sticky row label
+        // The table is now built starting at the requested departure hour, so
+        // its first data column is already the target (no 00:00-to-start jump).
+        const targetCell = columns[1]; // first cell is the sticky row label
         if (!targetCell) return;
         const stickyWidth = columns[0]?.offsetWidth || 0;
         const targetLeft = Math.max(0, targetCell.offsetLeft - stickyWidth - 4);
-        container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        container.scrollTo({ left: targetLeft, behavior });
     }
 
     function toggleTimeStep() {
         timeStep = timeStep === 1 ? 2 : (timeStep === 2 ? 3 : 1);
         saveDashboardPreferences();
+        updateDashboard();
+    }
+
+    function toggleFullDayForecast() {
+        showFullDayForecast = !showFullDayForecast;
+        const button = document.getElementById('toggleFullDayForecastBtn');
+        if (button) {
+            button.classList.toggle('active', showFullDayForecast);
+            button.textContent = showFullDayForecast ? '座釣區間' : '24 小時';
+            button.title = showFullDayForecast ? '目前顯示 00:00～24:00；點擊改回座釣區間' : '點擊顯示 00:00～24:00 全日資料';
+        }
         updateDashboard();
     }
 
@@ -4415,10 +4534,34 @@
         const sourceNote = document.getElementById('tideSourceNote');
         if (!dayData || !dayData.length) return;
 
-        const selectedItem = dayData[startHour] || dayData[0];
+        // The curve range follows the shared table mode. The selected departure
+        // time remains the reference marker even while viewing the full day.
+        const selectedItem = dayData.find(d => d.chartAbsoluteHour === startHour) || dayData[0];
+        const selectedIndex = Math.max(0, dayData.indexOf(selectedItem));
         const selectedHeight = selectedItem?.tideHeight;
         document.getElementById('tideSelectedTimeDisplay').textContent = selectedItem.time;
         document.getElementById('tideSelectedHeightDisplay').textContent = isFiniteNumber(selectedHeight) ? `${selectedHeight.toFixed(2)}m` : '--';
+
+        // Title and X axis must describe the same trip range as the curve.
+        const tripEnd = dayData[dayData.length - 1];
+        // The date rollover is implicit in the left-to-right sequence. Keeping
+        // only clock time makes the compact axis substantially easier to scan.
+        const formatChartTime = item => (showFullDayForecast && item.chartAbsoluteHour === 24) ? '24:00' : item.time;
+        const titleEl = document.getElementById('tideChartTitle');
+        const chartTitle = showFullDayForecast ? '24 小時潮位走勢圖' : '座釣區間潮位走勢圖';
+        if (titleEl && tripEnd) titleEl.textContent = `${chartTitle}（${formatChartTime(dayData[0])} → ${formatChartTime(tripEnd)}）`;
+        const axisEl = document.getElementById('tideChartAxis');
+        if (axisEl && tripEnd) {
+            const span = Math.max(tripEnd.chartOffset || 0, 1);
+            const tickCount = Math.min(6, span);
+            const ticks = [];
+            for (let i = 0; i <= tickCount; i++) {
+                const offset = Math.round((span * i) / tickCount);
+                const item = dayData.find(d => d.chartOffset === offset);
+                if (item) ticks.push(`<span>${formatChartTime(item)}</span>`);
+            }
+            axisEl.innerHTML = ticks.join('');
+        }
 
         const extremes = tideExtremesByDate[selectedDateIndex] || [];
         const selectedMinute = startHour * 60;
@@ -4440,8 +4583,8 @@
                 tideStateText = nearestExtreme.type === '滿潮' ? '滿潮附近' : '乾潮附近';
                 tideStateClass = nearestExtreme.type === '滿潮' ? 'warning' : 'info';
             } else {
-                const prev = dayData[Math.max(0, startHour - 1)]?.tideHeight;
-                const next = dayData[Math.min(23, startHour + 1)]?.tideHeight;
+                const prev = dayData[Math.max(0, selectedIndex - 1)]?.tideHeight;
+                const next = dayData[Math.min(dayData.length - 1, selectedIndex + 1)]?.tideHeight;
                 if (isFiniteNumber(prev) && isFiniteNumber(next)) {
                     tideStateText = next >= prev ? '漲潮中' : '退潮中';
                     tideStateClass = next >= prev ? 'success' : 'warning';
@@ -4458,9 +4601,26 @@
         badgeEl.style.padding = '3px 8px';
         badgeEl.style.marginBottom = '0';
 
+        // Show context for the actual trip: one tide turn before it, every turn
+        // inside it, and one tide turn after it. Do not dump unrelated turns
+        // from the rest of either calendar day into the compact card list.
+        const tripStartMinute = (dayData[0]?.chartAbsoluteHour || 0) * 60;
+        const tripEndMinute = (tripEnd?.chartAbsoluteHour || 0) * 60;
+        const allTripExtremes = [];
+        for (let dayOffset = -1; dayOffset <= Math.floor(tripEndMinute / 1440); dayOffset++) {
+            (tideExtremesByDate[selectedDateIndex + dayOffset] || []).forEach(ex => {
+                allTripExtremes.push({ ...ex, absoluteMinute: ex.minuteOfDay + (dayOffset * 1440) });
+            });
+        }
+        allTripExtremes.sort((a, b) => a.absoluteMinute - b.absoluteMinute);
+        const beforeTrip = allTripExtremes.filter(ex => ex.absoluteMinute < tripStartMinute).pop();
+        const inTrip = allTripExtremes.filter(ex => ex.absoluteMinute >= tripStartMinute && ex.absoluteMinute <= tripEndMinute);
+        const afterTrip = allTripExtremes.find(ex => ex.absoluteMinute > tripEndMinute);
+        const displayExtremes = [beforeTrip, ...inTrip, afterTrip].filter(Boolean);
+
         extremesGrid.innerHTML = '';
-        if (extremes.length) {
-            extremes.forEach(ex => {
+        if (displayExtremes.length) {
+            displayExtremes.forEach(ex => {
                 const card = document.createElement('div');
                 card.className = 'tide-extreme-card';
                 const color = ex.type === '滿潮' ? 'var(--danger-color)' : 'var(--accent-blue)';
@@ -4486,7 +4646,7 @@
 
         if (sourceNote) {
             sourceNote.textContent = tideDataSource === 'open-meteo'
-                ? '潮位資料：Open-Meteo Marine API sea_level_height_msl。此值為模式海面高度（含潮汐、氣壓等效應），基準為全球平均海平面；近岸精度有限，非中央氣象署潮位站潮高。滿／乾潮由當日曲線自動辨識。'
+                ? '潮位資料：Open-Meteo Marine API sea_level_height_msl。此值為模式海面高度（含潮汐、氣壓等效應），基準為全球平均海平面；近岸精度有限，非中央氣象署潮位站潮高。滿／乾潮由目前顯示的座釣區間曲線自動辨識。'
                 : '潮位資料目前無法取得；為避免誤導，本版不再顯示固定或模擬的滿／乾潮時間。';
         }
 
@@ -4509,13 +4669,14 @@
         const chartMax = maxH + margin;
         const rangeH = chartMax - chartMin || 1;
 
+        const chartSpan = Math.max(...numeric.map(d => d.chartOffset ?? d.hour), 1);
         const points = numeric.map(d => {
-            const x = (d.hour / 23) * svgWidth;
+            const x = ((d.chartOffset ?? d.hour) / chartSpan) * svgWidth;
             const y = svgHeight - paddingY - ((d.tideHeight - chartMin) / rangeH) * usableHeight;
             return `${x},${y}`;
         });
 
-        const selectedX = (startHour / 23) * svgWidth;
+        const selectedX = ((selectedItem?.chartOffset || 0) / chartSpan) * svgWidth;
         const selectedY = isFiniteNumber(selectedHeight)
             ? svgHeight - paddingY - ((selectedHeight - chartMin) / rangeH) * usableHeight
             : null;
@@ -4540,27 +4701,34 @@
 
     function renderTable(displayData, startHour, endHour) {
         const table = document.getElementById('forecastTable');
+        const container = document.getElementById('tableContainer');
+        // Build off-screen, position at the trip start, then reveal. This avoids
+        // a visible initial jump from 00:00 to the selected start hour.
+        if (container) container.style.visibility = 'hidden';
         table.innerHTML = '';
-        if (!displayData.length) return;
+        if (!displayData.length) {
+            if (container) container.style.visibility = '';
+            return;
+        }
 
         const loc = myLocations[currentLocationKey];
         const cfg = loc ? loc.config : DEFAULT_CONFIG;
         const modeKey = document.getElementById('activityMode').value;
 
         const rows = [
-            { key: 'time', label: '時間' },
-            { key: 'weather', label: '天氣' },
-            { key: 'temp', label: '溫度 (°C)' },
-            { key: 'wind', label: '風速 (kt)' },
-            { key: 'gust', label: '陣風 (kt)' },
+            { key: 'time', label: '🕒 時間' },
+            { key: 'weather', label: '🌤️ 天氣' },
+            { key: 'temp', label: '🌡️ 溫度 (°C)' },
+            { key: 'wind', label: '💨 風速 (kt)' },
+            { key: 'gust', label: '💨 陣風 (kt)' },
             { key: 'current', label: '🌊 洋流 (kt)' },
             { key: 'tideCurrent', label: '↕️ 潮流 (kt)' },
-            { key: 'wave', label: '浪高 (m)' },
-            { key: 'period', label: '涌浪週期 (秒)' },
-            { key: 'precip', label: '降水量 (mm)' },
-            { key: 'cloud', label: '雲量 (%)' },
-            { key: 'pressure', label: '氣壓 (hPa)' },
-            { key: 'fishIndex', label: '魚情指數' }
+            { key: 'wave', label: '🌊 浪高 (m)' },
+            { key: 'period', label: '〰️ 涌浪週期 (秒)' },
+            { key: 'precip', label: '🌧️ 降水量 (mm)' },
+            { key: 'cloud', label: '☁️ 雲量 (%)' },
+            { key: 'pressure', label: '🧭 氣壓 (hPa)' },
+            { key: 'fishIndex', label: '🎣 魚情指數' }
         ];
 
         rows.forEach(r => {
@@ -4573,11 +4741,14 @@
             let html = `<th class="first-col">${r.label}</th>`;
             
             displayData.forEach(d => {
-                const isHighlight = d.hour >= startHour && d.hour < endHour;
+                const displayHour = d.displayHour ?? d.hour;
+                const isHighlight = !showFullDayForecast && displayHour >= startHour && displayHour <= endHour;
                 let levelClass = getParameterLevelClass(r.key, d[r.key], modeKey, cfg);
                 let highlightClass = isHighlight ? 'highlight' : '';
 
-                let cellValue = d[r.key] !== undefined && d[r.key] !== null ? d[r.key] : '--';
+                let cellValue = r.key === 'time'
+                    ? (d.tableTime || d.time)
+                    : (d[r.key] !== undefined && d[r.key] !== null ? d[r.key] : '--');
                 if (r.key === 'wind' || r.key === 'gust') {
                     // Open-Meteo 的 wind_direction_10m 是「來向」；箭頭改成風吹去的方向。
                     const hasWindDir = Number.isFinite(Number(d.windDirDeg));
@@ -4616,6 +4787,8 @@
             tr.innerHTML = html;
             table.appendChild(tr);
         });
+        scrollForecastTableToStartTime('auto');
+        if (container) container.style.visibility = '';
     }
 
     // Data failure is deliberately rendered as "not assessed" instead of a
@@ -4623,6 +4796,8 @@
     function renderDataUnavailableDashboard() {
         document.getElementById('forecastTable').innerHTML = '';
         document.getElementById('tideSvg').innerHTML = '<text x="400" y="85" text-anchor="middle" fill="#fbbf24" font-size="18">資料不可用，暫不評估</text>';
+        document.getElementById('tideChartTitle').textContent = '座釣區間潮位走勢圖';
+        document.getElementById('tideChartAxis').innerHTML = '<span>--</span>';
         document.getElementById('tideExtremesGrid').innerHTML = '';
         ['maxWave', 'maxSwellWave', 'maxPeriod', 'maxWind', 'maxGust', 'minVisibility', 'windCurrentOpposition', 'thunderRisk'].forEach(id => {
             const el = document.getElementById(id);
@@ -4677,7 +4852,28 @@
         const endHour = startHour + windowHours;
 
         const raw24hData = currentDataByDate[selectedDateIndex];
-        const displayData = raw24hData.filter(d => d.hour % timeStep === 0);
+        // Either show the trip range, or the independent 00:00–24:00 daily view.
+        // The latter deliberately ignores departure time and evaluation window.
+        const displayData = [];
+        const endDayOffset = Math.floor(endHour / 24);
+        const tableStartHour = showFullDayForecast ? 0 : startHour;
+        const tableEndHour = showFullDayForecast ? 24 : endHour;
+        const displayHours = [];
+        for (let absoluteHour = tableStartHour; absoluteHour <= tableEndHour; absoluteHour += timeStep) {
+            displayHours.push(absoluteHour);
+        }
+        if (displayHours[displayHours.length - 1] !== tableEndHour) displayHours.push(tableEndHour);
+        displayHours.forEach(absoluteHour => {
+            const dayOffset = Math.floor(absoluteHour / 24);
+            const hour = absoluteHour % 24;
+            const item = currentDataByDate[selectedDateIndex + dayOffset]?.find(d => d.hour === hour);
+            if (!item) return;
+            displayData.push({
+                ...item,
+                displayHour: absoluteHour,
+                tableTime: absoluteHour === 24 ? '24:00' : item.time
+            });
+        });
         // Build the evaluation window across midnight instead of truncating it at 24:00.
         const windowData = [];
         for (let offset = 0; offset < windowHours; offset++) {
@@ -4688,11 +4884,26 @@
             const item = dayData?.find(d => d.hour === hour);
             if (item) windowData.push(item);
         }
+        // Tide chart uses the same mode as the table: the trip range by default,
+        // or an independent 00:00–24:00 curve in full-day mode.
+        const tideChartData = [];
+        const tideChartStartHour = showFullDayForecast ? 0 : startHour;
+        const tideChartEndHour = showFullDayForecast ? 24 : endHour;
+        for (let absoluteHour = tideChartStartHour; absoluteHour <= tideChartEndHour; absoluteHour++) {
+            const dateOffset = Math.floor(absoluteHour / 24);
+            const hour = absoluteHour % 24;
+            const item = currentDataByDate[selectedDateIndex + dateOffset]?.find(d => d.hour === hour);
+            if (item) tideChartData.push({
+                ...item,
+                chartOffset: absoluteHour - tideChartStartHour,
+                chartAbsoluteHour: absoluteHour,
+                dayOffset: dateOffset
+            });
+        }
 
         document.getElementById('resultCardTitle').textContent = `📊 綜合評估結果 (${windowHours}小時窗口 - ${activeDateInfo.tideName})`;
         // A cross-midnight trip must make the next-day finish explicit rather
         // than showing two clock times that appear to be on the same date.
-        const endDayOffset = Math.floor(endHour / 24);
         const endDate = new Date(`${activeDateInfo.fullDate}T00:00:00`);
         endDate.setDate(endDate.getDate() + endDayOffset);
         const formatShortDate = date => `${date.getMonth() + 1}/${date.getDate()}`;
@@ -4703,7 +4914,7 @@
             ? `評估區間：${startText} → ${endText}（隔日結束）`
             : `評估區間：${startText} → ${endText}`;
 
-        renderTideChart(raw24hData, startHour);
+        renderTideChart(tideChartData, startHour);
         renderTable(displayData, startHour, endHour);
         if (activeMapDataLayer && document.getElementById('mapContainerWrapper')?.style.display !== 'none') {
             refreshActiveMapLayer(true);
