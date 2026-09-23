@@ -1765,8 +1765,7 @@
             line-height: 1.35;
         }
         .map-vector-icon,
-        .map-rain-icon,
-        .map-tide-icon {
+        .map-rain-icon {
             background: transparent !important;
             border: 0 !important;
         }
@@ -1792,8 +1791,7 @@
             box-shadow: 0 1px 6px rgba(0,0,0,.35);
         }
         .map-vector-label,
-        .map-rain-label,
-        .map-tide-label {
+        .map-rain-label {
             position: absolute;
             left: 50%;
             top: 26px;
@@ -1808,8 +1806,7 @@
             line-height: 1.1;
             box-shadow: 0 1px 4px rgba(0,0,0,.28);
         }
-        .map-rain-wrap,
-        .map-tide-wrap {
+        .map-rain-wrap {
             position: relative;
             width: 30px;
             height: 30px;
@@ -1817,8 +1814,7 @@
             align-items: center;
             justify-content: center;
         }
-        .map-rain-dot,
-        .map-tide-dot {
+        .map-rain-dot {
             width: 20px;
             height: 20px;
             border-radius: 50%;
@@ -2084,7 +2080,7 @@
         </div>
         <div class="controls-container spot-main-row" style="border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-top: 15px;">
             <div class="control-group favorite-row">
-                <label for="locationSelect" style="font-weight: bold; color: var(--accent-blue);">★ 我的常用釣點：</label>
+                <label for="locationSelect" style="font-weight: bold; color: var(--accent-blue);">★ 我的釣點：</label>
                 <select id="locationSelect" onchange="onLocationChange()"></select>
             </div>
 
@@ -2174,7 +2170,7 @@
             </div>
 
             <div class="control-group inline-time-group">
-                <label for="windowSize">評估窗口：</label>
+                <label for="windowSize">座釣時間：</label>
                 <select id="windowSize" onchange="handleDashboardPreferenceChange()">
                     <option value="2">2 小時</option>
                     <option value="4">4 小時</option>
@@ -2220,10 +2216,9 @@
             <div class="control-group forecast-wave-control">
                 <label for="waveSourceSelect">🌊 波浪資料檢視：</label>
                 <select id="waveSourceSelect" onchange="handleWaveSourceChange()">
-                    <!-- <option value="ecmwf_wam">ECMWF WAM（預設，9 km）</option> -->
-                    <option value="meteofrance_wave">法氣象海浪模</option>
-                    <option value="ncep_gfswave016">美高解海浪模</option>
-                    <option value="ncep_gfswave025">美標解海浪模</option>
+                    <option value="meteofrance_wave">法國氣象海浪模型</option>
+                    <option value="ncep_gfswave016" selected>美國高解海浪模型</option>
+                    <option value="ncep_gfswave025">美國標解海浪模型</option>
                 </select>
             </div>
         </div>
@@ -2733,9 +2728,8 @@
     let astroDataByDate = [];
     let tideExtremesByDate = [];
     let tideDataSource = 'none';
-    let selectedWaveSource = 'ecmwf_wam';
+    let selectedWaveSource = 'ncep_gfswave016';
     const WAVE_MODELS = {
-        // ecmwf_wam: { apiModel: 'ecmwf_wam', name: 'ECMWF WAM', detail: '9 km／逐時／最長 15 天' },
         meteofrance_wave: { apiModel: 'meteofrance_wave', name: 'Météo-France MFWAM', detail: '8 km／每 3 小時／最長 10 天' },
         ncep_gfswave016: { apiModel: 'ncep_gfswave016', name: 'NOAA GFS Wave 0.16°', detail: '約 16 km／逐時／最長 16 天' },
         ncep_gfswave025: { apiModel: 'ncep_gfswave025', name: 'NOAA GFS Wave 0.25°', detail: '約 25 km／逐時／最長 16 天' }
@@ -2844,7 +2838,7 @@
             startTime: startTime.value,
             windowSize: windowSize.value,
             activityMode: activityMode.value,
-            waveSource: waveSource?.value || 'ecmwf_wam',
+            waveSource: waveSource?.value || 'ncep_gfswave016',
             timeStep,
             boatCollapsed: document.getElementById('boatBox')?.classList.contains('boat-collapsed') ?? false
         };
@@ -2871,8 +2865,8 @@
         setIfAvailable('startTime', startTime);
         setIfAvailable('windowSize', windowSize);
         setIfAvailable('activityMode', activityMode);
-        setIfAvailable('waveSourceSelect', waveSource || 'ecmwf_wam');
-        selectedWaveSource = document.getElementById('waveSourceSelect')?.value || 'ecmwf_wam';
+        setIfAvailable('waveSourceSelect', waveSource || 'ncep_gfswave016');
+        selectedWaveSource = document.getElementById('waveSourceSelect')?.value || 'ncep_gfswave016';
         applyWaveSourceView();
         if ([1, 2, 3].includes(Number(savedTimeStep))) timeStep = Number(savedTimeStep);
         setBoatCollapsed(boatCollapsed === true);
@@ -2884,14 +2878,14 @@
     }
 
     function handleWaveSourceChange() {
-        selectedWaveSource = document.getElementById('waveSourceSelect')?.value || 'ecmwf_wam';
+        selectedWaveSource = document.getElementById('waveSourceSelect')?.value || 'ncep_gfswave016';
         applyWaveSourceView();
         saveDashboardPreferences();
         fetchSunnyFishData();
     }
 
     function getSelectedWaveModel() {
-        return WAVE_MODELS[selectedWaveSource] || WAVE_MODELS.ecmwf_wam;
+        return WAVE_MODELS[selectedWaveSource] || WAVE_MODELS.ncep_gfswave016;
     }
 
     function applyWaveSourceView() {
@@ -3160,22 +3154,6 @@
         const marker = L.marker([lat, lon], {
             interactive: true,
             icon: L.divIcon({ className: 'map-vector-icon', html, iconSize: [34, 40], iconAnchor: [17, 17] })
-        });
-        if (tooltipHtml) marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95 });
-        marker.addTo(mapDataLayerGroup);
-    }
-
-    function renderTidePoint(lat, lon, deltaCmHr, tooltipHtml) {
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-        const v = Number.isFinite(deltaCmHr) ? deltaCmHr : 0;
-        const state = v > 2 ? '漲' : (v < -2 ? '退' : '平');
-        const symbol = state === '漲' ? '↑' : (state === '退' ? '↓' : '•');
-        const color = state === '漲' ? '#22c55e' : (state === '退' ? '#f59e0b' : '#64748b');
-        const label = `${v >= 0 ? '+' : ''}${v.toFixed(0)}cm/h`;
-        const html = `<div class="map-tide-wrap"><div class="map-tide-dot" style="background:${color};">${symbol}</div><div class="map-tide-label">${state} ${label}</div></div>`;
-        const marker = L.marker([lat, lon], {
-            interactive: true,
-            icon: L.divIcon({ className: 'map-tide-icon', html, iconSize: [30, 38], iconAnchor: [15, 15] })
         });
         if (tooltipHtml) marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95 });
         marker.addTo(mapDataLayerGroup);
@@ -3578,10 +3556,6 @@
         const deg = Math.floor(decimalVal);
         const min = ((decimalVal - deg) * 60).toFixed(2);
         return { deg, min };
-    }
-
-    function degMinToDecimal(deg, min) {
-        return parseFloat(deg) + (parseFloat(min) / 60);
     }
 
     function loadConfigToUI() {
@@ -4346,70 +4320,6 @@
 
         updateDashboard();
     }
-
-    // DEVELOPMENT ONLY: intentionally never called by production error paths.
-    // Kept solely for manual layout testing with synthetic values.
-    function generateDevelopmentSampleData() {
-        astroDataByDate = dates.map(() => ({
-            sunrise: '05:40', sunset: '18:20', moonrise: '17:30', moonset: '04:30'
-        }));
-        tideDataSource = 'none';
-        tideExtremesByDate = dates.map(() => []);
-
-        currentDataByDate = dates.map((d) => {
-            const data = [];
-            for (let i = 0; i < 24; i++) {
-                // 離線備援時不再製造假的潮位；沒有模型資料就明確顯示無資料。
-                const tideHeight = null;
-                const windVal = 9.5;
-                const gustVal = 13.0;
-                const fallbackFish = calculateHourlyFishIndex({
-                    tideCurrent: 0.6,
-                    oceanCurrent: 1.4,
-                    pressure: 1016,
-                    wind: windVal,
-                    gust: gustVal,
-                    wave: 1.1,
-                    hour: i
-                });
-                data.push({
-                    time: `${String(i).padStart(2, '0')}:00`,
-                    hour: i,
-                    weather: getWeatherIcon(0, i, (i >= 6 && i < 18) ? 1 : 0),
-                    wave: 1.1,
-                    wind: windVal,
-                    gust: gustVal,
-                    windBeaufort: knotsToBeaufort(windVal),
-                    gustBeaufort: knotsToBeaufort(gustVal),
-                    windDir: '東北風',
-                    current: 1.4,
-                    currentDir: 45,
-                    currentDirText: '45°',
-                    tideCurrent: 0.6,
-                    tideDir: 225,
-                    tideDirText: '225°',
-                    wavePeriod: 8.5,
-                    swellWave: 0.8,
-                    swellDir: 45,
-                    period: 8.5,
-                    visibilityKm: null,
-                    hazardWeatherCode: null,
-                    thunderstormRisk: false,
-                    temp: 28,
-                    pressure: 1016,
-                    cloud: 50,
-                    precip: '0',
-                    fishIndex: fallbackFish.label,
-                    fishScore: fallbackFish.total,
-                    fishScoreDetails: fallbackFish.details,
-                    tideHeight: tideHeight
-                });
-            }
-            return data;
-        });
-        updateDashboard();
-    }
-
 
     function applyMobilePreset() {
         if (window.innerWidth <= 480) {
