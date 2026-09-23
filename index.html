@@ -1604,6 +1604,13 @@
             font-size: 0.54rem !important;
             line-height: 1 !important;
         }
+        /* Keep the map-panel hide control vertically centred beside its tip. */
+        body.app-shell.mobile-version .map-tip-headline .compact-hide-btn {
+            align-self: center;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
 
 
         /* V7: 地圖內固定顯示「儲存座標」，拖曳後不需往上找按鈕。 */
@@ -1617,9 +1624,9 @@
             flex-direction: column;
             align-items: stretch;
             gap: 3px;
-            width: 106px;
-            min-width: 106px;
-            max-width: 106px;
+            width: 140px;
+            min-width: 140px;
+            max-width: 140px;
         }
         .map-spot-name-box {
             background: rgba(15, 23, 42, 0.94);
@@ -1639,17 +1646,17 @@
         .map-spot-name-input {
             width: 100%;
             min-width: 0;
-            height: 12px !important;
-            min-height: 12px !important;
+            height: 20px !important;
+            min-height: 20px !important;
             box-sizing: border-box;
             border: 1px solid var(--border-color);
             border-radius: 4px;
             background: #0f172a;
             color: var(--text-color);
-            padding: 0 3px !important;
-            font-size: 0.46rem !important;
+            padding: 1px 4px !important;
+            font-size: 0.56rem !important;
             font-weight: 600;
-            line-height: 10px;
+            line-height: 16px;
             outline: none;
         }
         .map-spot-name-input:focus {
@@ -1720,7 +1727,7 @@
             min-height: 32px;
             border-radius: 6px;
             padding: 4px 3px;
-            font-size: 0.62rem;
+            font-size: 0.43rem;
             font-weight: 700;
             cursor: pointer;
             line-height: 1.15;
@@ -1944,23 +1951,23 @@
         }
         body.app-shell.mobile-version #dateCard .inline-time-group {
             width: auto !important;
-            grid-template-columns: auto 64px !important;
+            grid-template-columns: auto 46px !important;
         }
         body.app-shell.mobile-version #dateCard .inline-time-group:nth-child(2) {
-            grid-template-columns: auto 72px !important;
+            grid-template-columns: auto 52px !important;
         }
         body.app-shell.mobile-version #dateCard .inline-time-group select {
-            width: 64px !important;
-            height: 30px !important;
-            min-height: 30px !important;
-            padding: 2px 5px !important;
-            font-size: 0.68rem !important;
+            width: 46px !important;
+            height: 27px !important;
+            min-height: 27px !important;
+            padding: 2px 3px !important;
+            font-size: 0.6rem !important;
         }
         body.app-shell.mobile-version #dateCard .inline-time-group:nth-child(2) select {
-            width: 72px !important;
+            width: 52px !important;
         }
         body.app-shell.mobile-version #dateCard .inline-time-group label {
-            font-size: 0.68rem !important;
+            font-size: 0.6rem !important;
         }
         body.app-shell.mobile-version #dateCard .full-day-view-control {
             grid-area: full;
@@ -1969,11 +1976,22 @@
         }
         body.app-shell.mobile-version #dateCard .full-day-view-control .toggle-btn {
             width: auto !important;
-            min-width: 70px;
-            height: 30px !important;
-            min-height: 30px !important;
-            padding: 2px 8px !important;
-            font-size: 0.72rem !important;
+            min-width: 52px;
+            height: 27px !important;
+            min-height: 27px !important;
+            padding: 2px 4px !important;
+            font-size: 0.6rem !important;
+        }
+        body.app-shell.mobile-version #dateCard .compact-date-selector {
+            margin-top: 6px !important;
+        }
+        body.app-shell.mobile-version #dateCard .compact-section-title {
+            margin-top: 6px !important;
+            margin-bottom: 1px !important;
+        }
+        body.app-shell.mobile-version #dateCard .time-control-row {
+            margin-top: 1px !important;
+            gap: 2px !important;
         }
         /* Keep the wave-model label and selector together on one compact line. */
         body.app-shell.mobile-version #forecastCard .forecast-source-controls {
@@ -2017,13 +2035,28 @@
             display: none;
         }
 
+        /* 統一主要資訊標題字級；安全與魚情的「良好」狀態則縮小，保留層級。 */
+        body.app-shell.mobile-version #spotCard .card-header-flex > .card-title,
+        body.app-shell.mobile-version .map-tip-headline > span,
+        body.app-shell.mobile-version .tide-card-header,
+        body.app-shell.mobile-version #supBoxTitle {
+            font-size: 0.78rem !important;
+        }
+        body.app-shell.mobile-version .tide-card-header #tideStatusBadge {
+            font-size: 0.78rem !important;
+        }
+        body.app-shell.mobile-version #supBadge.success,
+        body.app-shell.mobile-version #boatBadge.success {
+            font-size: 0.66rem !important;
+            padding: 3px 7px !important;
+        }
     </style>
 </head>
 <body class="app-shell mobile-version">
 
 <div class="container">
     <div>
-        <h1>🌊 釣點海象與活動安全評估儀表板</h1>
+        <h1>🌊 釣點海象與活動安全評估</h1>
     </div>
 
     <!-- 0. 釣點選擇與管理 -->
@@ -3277,6 +3310,17 @@
     }
 
     function initMap() {
+        // Leaflet is loaded from a CDN.  If an offline first launch cannot
+        // obtain it, keep the forecast dashboard usable instead of letting a
+        // ReferenceError stop the rest of init().
+        if (!window.L) {
+            const mapElement = document.getElementById('fishingMap');
+            if (mapElement) {
+                mapElement.innerHTML = '<div style="display:grid;place-items:center;height:100%;padding:12px;box-sizing:border-box;text-align:center;color:var(--text-muted);font-size:.78rem;">地圖元件目前未載入。<br>請連線後重新整理，即可使用地圖選點。</div>';
+            }
+            console.warn('Leaflet is unavailable; map features are temporarily disabled.');
+            return;
+        }
         const loc = myLocations[currentLocationKey] || { lat: 25.122, lon: 121.922 };
         map = L.map('fishingMap').setView([loc.lat, loc.lon], 12);
         if (map.attributionControl) map.attributionControl.setPrefix(false);
@@ -3962,7 +4006,7 @@
     function formatHourLabel(value) {
         const text = String(value ?? '');
         const match = text.match(/^(\d{1,2}):00$/);
-        return match ? String(Number(match[1])) : text;
+        return match ? `${match[1].padStart(2, '0')}:00` : text;
     }
 
     function formatMinutesToTime(totalMinutes) {
@@ -4031,7 +4075,11 @@
 
     function getTideHeightForTime(tideMarine, targetTimeString, timeIndex = null) {
         if (!tideMarine?.time || !tideMarine?.sea_level_height_msl) return null;
-        const idx = timeIndex?.get(targetTimeString) ?? tideMarine.time.findIndex(t => t.startsWith(targetTimeString));
+        // A prebuilt index is supplied during forecast processing.  Do not
+        // fall back to a linear search for every missing timestamp.
+        const idx = timeIndex instanceof Map
+            ? (timeIndex.get(targetTimeString) ?? -1)
+            : tideMarine.time.findIndex(t => t.startsWith(targetTimeString));
         if (idx === -1) return null;
         const val = tideMarine.sea_level_height_msl[idx];
         return isFiniteNumber(val) ? Number(val.toFixed(2)) : null;
@@ -4416,7 +4464,7 @@
         for (let i = 0; i < 24; i += 1) {
             const opt = document.createElement('option');
             opt.value = i;
-            opt.textContent = String(i);
+            opt.textContent = `${String(i).padStart(2, '0')}:00`;
             timeSelect.appendChild(opt);
         }
         timeSelect.value = currentVal < 24 ? currentVal : 0;
@@ -4623,7 +4671,7 @@
         const tripEnd = dayData[dayData.length - 1];
         // The date rollover is implicit in the left-to-right sequence. Keeping
         // only clock time makes the compact axis substantially easier to scan.
-        const formatChartTime = item => (showFullDayForecast && item.chartAbsoluteHour === 24) ? '24' : formatHourLabel(item.time);
+        const formatChartTime = item => (showFullDayForecast && item.chartAbsoluteHour === 24) ? '24:00' : formatHourLabel(item.time);
         const titleEl = document.getElementById('tideChartTitle');
         if (titleEl) titleEl.textContent = '潮位走勢圖';
         const axisEl = document.getElementById('tideChartAxis');
@@ -4965,7 +5013,7 @@
             displayData.push({
                 ...item,
                 displayHour: absoluteHour,
-                tableTime: absoluteHour === 24 ? '24' : formatHourLabel(item.time)
+                tableTime: absoluteHour === 24 ? '24:00' : formatHourLabel(item.time)
             });
         });
         // Build the evaluation window across midnight instead of truncating it at 24:00.
@@ -5002,8 +5050,8 @@
         endDate.setDate(endDate.getDate() + endDayOffset);
         const formatShortDate = date => `${date.getMonth() + 1}/${date.getDate()}`;
         const startDate = new Date(`${activeDateInfo.fullDate}T00:00:00`);
-        const startText = `${formatShortDate(startDate)} ${startHour}`;
-        const endText = `${formatShortDate(endDate)} ${endHour % 24}`;
+        const startText = `${formatShortDate(startDate)} ${String(startHour).padStart(2, '0')}:00`;
+        const endText = `${formatShortDate(endDate)} ${String(endHour % 24).padStart(2, '0')}:00`;
         document.getElementById('windowDisplay').textContent = endDayOffset > 0
             ? `評估區間：${startText} → ${endText}（隔日結束）`
             : `評估區間：${startText} → ${endText}`;

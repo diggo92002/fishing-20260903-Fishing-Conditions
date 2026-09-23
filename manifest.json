@@ -1,8 +1,11 @@
 {
-  "name": "釣點海象與活動安全評估儀表板",
+  "name": "釣點海象與活動安全評估",
   "short_name": "釣魚海象",
-  "description": "釣點海象、潮汐、風浪與活動安全評估儀表板",
+  "description": "釣點海象、潮汐、風浪與活動安全評估",
+  "id": "./",
+  "lang": "zh-TW",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
