@@ -5,7 +5,7 @@
     <!-- viewport-fit=cover 讓 iPhone 的 safe-area-inset 能避開瀏海與靈動島。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <!-- PWA / GitHub Pages -->
-    <meta name="description" content="釣點海象、潮汐、風浪與活動安全評估儀表板">
+    <meta name="description" content="釣點海象、潮汐、風浪與活動安全評估">
     <meta name="theme-color" content="#0f172a">
     <meta name="color-scheme" content="dark">
     <meta name="mobile-web-app-capable" content="yes">
@@ -15,7 +15,7 @@
     <link rel="manifest" href="./manifest.json">
     <link rel="icon" type="image/svg+xml" href="./icon.svg">
 
-    <title>釣點海象與活動安全評估儀表板</title>
+    <title>釣點海象與活動安全評估</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -2173,7 +2173,7 @@
             <div class="control-group forecast-wave-control">
                 <label for="waveSourceSelect">🌊 波浪資料檢視：</label>
                 <select id="waveSourceSelect" onchange="handleWaveSourceChange()">
-                    <option value="ecmwf_wam">ECMWF WAM（預設，9 km）</option>
+                    <!-- <option value="ecmwf_wam">ECMWF WAM（預設，9 km）</option> -->
                     <option value="meteofrance_wave">Météo-France MFWAM（8 km）</option>
                     <option value="ncep_gfswave016">NOAA GFS Wave（0.16°）</option>
                     <option value="ncep_gfswave025">NOAA GFS Wave（0.25°）</option>
@@ -2687,7 +2687,7 @@
     let tideDataSource = 'none';
     let selectedWaveSource = 'ecmwf_wam';
     const WAVE_MODELS = {
-        ecmwf_wam: { apiModel: 'ecmwf_wam', name: 'ECMWF WAM', detail: '9 km／逐時／最長 15 天' },
+        // ecmwf_wam: { apiModel: 'ecmwf_wam', name: 'ECMWF WAM', detail: '9 km／逐時／最長 15 天' },
         meteofrance_wave: { apiModel: 'meteofrance_wave', name: 'Météo-France MFWAM', detail: '8 km／每 3 小時／最長 10 天' },
         ncep_gfswave016: { apiModel: 'ncep_gfswave016', name: 'NOAA GFS Wave 0.16°', detail: '約 16 km／逐時／最長 16 天' },
         ncep_gfswave025: { apiModel: 'ncep_gfswave025', name: 'NOAA GFS Wave 0.25°', detail: '約 25 km／逐時／最長 16 天' }
