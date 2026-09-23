@@ -400,7 +400,9 @@
             border-radius: 6px;
         }
 
-        .reason-list { color: var(--danger-color); font-size: 0.8rem; margin-top: 6px; padding-left: 18px; min-height: 32px; }
+        /* Compact secondary explanation; safety badge and measured values remain prominent. */
+        .restriction-title { font-size: 0.4rem !important; }
+        .reason-list { color: var(--danger-color); font-size: 0.4rem; margin-top: 4px; padding-left: 12px; min-height: 16px; }
 
         .boat-score-breakdown {
             display: grid;
@@ -1987,16 +1989,32 @@
         }
         body.app-shell.mobile-version #forecastCard .forecast-wave-control label {
             margin: 0 !important;
-            font-size: 0.7rem !important;
+            font-size: 0.62rem !important;
             white-space: nowrap;
         }
         body.app-shell.mobile-version #forecastCard .forecast-wave-control select {
             width: 100% !important;
             min-width: 0;
-            height: 32px !important;
-            min-height: 32px !important;
-            padding: 2px 6px !important;
-            font-size: 0.68rem !important;
+            height: 28px !important;
+            min-height: 28px !important;
+            padding: 2px 5px !important;
+            font-size: 0.58rem !important;
+        }
+        body.app-shell.mobile-version #forecastCard table {
+            font-size: calc(0.36rem * var(--forecast-font-scale)) !important;
+        }
+        body.app-shell.mobile-version #forecastCard th,
+        body.app-shell.mobile-version #forecastCard td {
+            padding: 2px 3px !important;
+        }
+        /* Hide native select chevrons while retaining the native tap/click menu. */
+        body.app-shell.mobile-version select {
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: none !important;
+        }
+        body.app-shell.mobile-version select::-ms-expand {
+            display: none;
         }
 
     </style>
@@ -2181,7 +2199,7 @@
         </div>
         <div class="tide-chart-container">
             <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px;">
-                <span id="tideChartTitle">座釣區間潮位走勢圖</span>
+                <span id="tideChartTitle">潮位走勢圖</span>
                 <span>單位：公尺 (m)</span>
             </div>
             <!-- SVG 潮位走勢圖 -->
@@ -2230,7 +2248,7 @@
                     </div>
                 </div>
                 <div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;">觸發限制因素：</div>
+                    <div class="restriction-title" style="color: var(--text-muted); margin-top: 8px;">觸發限制因素：</div>
                     <ul id="supReasons" class="reason-list"></ul>
                 </div>
             </div>
@@ -2306,6 +2324,13 @@
                         <div class="config-row">
                             <label>風流對沖最低洋流 (kt):</label>
                             <input type="number" id="cfg_safety_oppositionMinCurrent" min="0" step="0.1" value="0.5">
+                        </div>
+                        <div class="config-row">
+                            <label>推估潮流納入魚情:</label>
+                            <select id="cfg_fish_includeEstimatedTideCurrent">
+                                <option value="on">納入魚情分數</option>
+                                <option value="off">僅顯示，不納入分數</option>
+                            </select>
                         </div>
                         <div class="config-row">
                             <label>日期列字型大小：</label>
@@ -2640,6 +2665,7 @@
         safety_thunderAction: 'danger',
         safety_oppositionAngle: 135,
         safety_oppositionMinWind: 8.0,
+        fish_includeEstimatedTideCurrent: true,
         safety_oppositionMinCurrent: 0.5,
         display_dateFontScale: 1.6,
         display_forecastFontScale: 1.6
@@ -2733,6 +2759,9 @@
             }
             if (myLocations[key].config.sup_maxPeriod === undefined) {
                 myLocations[key].config.sup_maxPeriod = DEFAULT_CONFIG.sup_maxPeriod;
+            }
+            if (myLocations[key].config.fish_includeEstimatedTideCurrent === undefined) {
+                myLocations[key].config.fish_includeEstimatedTideCurrent = DEFAULT_CONFIG.fish_includeEstimatedTideCurrent;
             }
         });
 
@@ -2975,7 +3004,7 @@
         const names = { ocean: '洋流', tide: '潮流', wind: '風速', rain: '降雨雷暴' };
         const dt = getSelectedMapLayerDateTime();
         statusEl.textContent = loading ? `⏳ ${names[layer] || '圖層'}載入中` : (message || (layer ? `圖層：${names[layer]}` : '圖層：未開啟'));
-        timeEl.textContent = layer ? `${dt.date} ${String(dt.hour).padStart(2, '0')}:00` : '';
+        timeEl.textContent = layer ? `${dt.date} ${dt.hour}` : '';
     }
 
     function setMapLayerLegend(layer) {
@@ -3534,6 +3563,7 @@
         document.getElementById('cfg_safety_oppositionAngle').value = loc.config?.safety_oppositionAngle ?? DEFAULT_CONFIG.safety_oppositionAngle;
         document.getElementById('cfg_safety_oppositionMinWind').value = loc.config?.safety_oppositionMinWind ?? DEFAULT_CONFIG.safety_oppositionMinWind;
         document.getElementById('cfg_safety_oppositionMinCurrent').value = loc.config?.safety_oppositionMinCurrent ?? DEFAULT_CONFIG.safety_oppositionMinCurrent;
+        document.getElementById('cfg_fish_includeEstimatedTideCurrent').value = (loc.config?.fish_includeEstimatedTideCurrent ?? DEFAULT_CONFIG.fish_includeEstimatedTideCurrent) ? 'on' : 'off';
         document.getElementById('cfg_display_dateFontScale').value = String(sharedDisplayFontPreferences.display_dateFontScale ?? DEFAULT_CONFIG.display_dateFontScale);
         document.getElementById('cfg_display_forecastFontScale').value = String(sharedDisplayFontPreferences.display_forecastFontScale ?? DEFAULT_CONFIG.display_forecastFontScale);
         applyDisplayFontScale(sharedDisplayFontPreferences);
@@ -3679,6 +3709,7 @@
             safety_oppositionAngle: readNum('cfg_safety_oppositionAngle', DEFAULT_CONFIG.safety_oppositionAngle),
             safety_oppositionMinWind: readNum('cfg_safety_oppositionMinWind', DEFAULT_CONFIG.safety_oppositionMinWind),
             safety_oppositionMinCurrent: readNum('cfg_safety_oppositionMinCurrent', DEFAULT_CONFIG.safety_oppositionMinCurrent),
+            fish_includeEstimatedTideCurrent: document.getElementById('cfg_fish_includeEstimatedTideCurrent').value !== 'off',
             display_dateFontScale: readNum('cfg_display_dateFontScale', DEFAULT_CONFIG.display_dateFontScale),
             display_forecastFontScale: readNum('cfg_display_forecastFontScale', DEFAULT_CONFIG.display_forecastFontScale),
         };
@@ -3926,6 +3957,14 @@
         return typeof value === 'number' && Number.isFinite(value);
     }
 
+    // Hourly forecast views use compact hour labels. Times with real minutes
+    // (for example, a 01:42 tide turn) remain unchanged.
+    function formatHourLabel(value) {
+        const text = String(value ?? '');
+        const match = text.match(/^(\d{1,2}):00$/);
+        return match ? String(Number(match[1])) : text;
+    }
+
     function formatMinutesToTime(totalMinutes) {
         let minutes = Math.round(totalMinutes) % 1440;
         if (minutes < 0) minutes += 1440;
@@ -3990,42 +4029,47 @@
         });
     }
 
-    function getTideHeightForTime(tideMarine, targetTimeString) {
+    function getTideHeightForTime(tideMarine, targetTimeString, timeIndex = null) {
         if (!tideMarine?.time || !tideMarine?.sea_level_height_msl) return null;
-        const idx = tideMarine.time.findIndex(t => t.startsWith(targetTimeString));
+        const idx = timeIndex?.get(targetTimeString) ?? tideMarine.time.findIndex(t => t.startsWith(targetTimeString));
         if (idx === -1) return null;
         const val = tideMarine.sea_level_height_msl[idx];
         return isFiniteNumber(val) ? Number(val.toFixed(2)) : null;
     }
 
-    function deriveDailyTidalResidual(currentMarine, dateStr, targetIdx) {
+    function deriveDailyTidalResidual(currentMarine, dateStr, targetIdx, dailyMeanCache = null) {
         if (!currentMarine?.time || !currentMarine?.ocean_current_velocity || !currentMarine?.ocean_current_direction) {
             return { speed: null, dir: null };
         }
         if (targetIdx < 0 || targetIdx >= currentMarine.time.length) return { speed: null, dir: null };
 
-        let sumU = 0;
-        let sumV = 0;
-        let count = 0;
-        for (let i = 0; i < currentMarine.time.length; i++) {
-            if (!currentMarine.time[i].startsWith(dateStr)) continue;
-            const speed = Number(currentMarine.ocean_current_velocity[i]);
-            const dir = Number(currentMarine.ocean_current_direction[i]);
-            if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
-            const rad = dir * Math.PI / 180;
-            sumU += speed * Math.sin(rad);
-            sumV += speed * Math.cos(rad);
-            count++;
+        let mean = dailyMeanCache?.has(dateStr) ? dailyMeanCache.get(dateStr) : undefined;
+        if (mean === undefined) {
+            let sumU = 0;
+            let sumV = 0;
+            let count = 0;
+            for (let i = 0; i < currentMarine.time.length; i++) {
+                if (!currentMarine.time[i].startsWith(dateStr)) continue;
+                const speed = Number(currentMarine.ocean_current_velocity[i]);
+                const dir = Number(currentMarine.ocean_current_direction[i]);
+                if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
+                const rad = dir * Math.PI / 180;
+                sumU += speed * Math.sin(rad);
+                sumV += speed * Math.cos(rad);
+                count++;
+            }
+            mean = count ? { u: sumU / count, v: sumV / count } : null;
+            dailyMeanCache?.set(dateStr, mean);
         }
-        if (!count) return { speed: null, dir: null };
+        if (!mean) return { speed: null, dir: null };
 
         const speedNow = Number(currentMarine.ocean_current_velocity[targetIdx]);
         const dirNow = Number(currentMarine.ocean_current_direction[targetIdx]);
         if (!Number.isFinite(speedNow) || !Number.isFinite(dirNow)) return { speed: null, dir: null };
 
         const radNow = dirNow * Math.PI / 180;
-        const u = speedNow * Math.sin(radNow) - (sumU / count);
-        const v = speedNow * Math.cos(radNow) - (sumV / count);
+        const u = speedNow * Math.sin(radNow) - mean.u;
+        const v = speedNow * Math.cos(radNow) - mean.v;
         const speed = Math.sqrt(u * u + v * v);
         const dir = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360;
         return { speed, dir };
@@ -4077,20 +4121,16 @@
     }
 
     // 每小時魚情：潮流30%＋氣壓20%＋洋流20%＋風浪20%＋時段10%。
-    function calculateHourlyFishIndex({ tideCurrent, oceanCurrent, pressure, wind, gust, wave, hour }) {
+    function calculateHourlyFishIndex({ tideCurrent, oceanCurrent, pressure, wind, gust, wave, hour, includeEstimatedTideCurrent = true }) {
         const tideCurrentScore = scoreTideCurrentForFishing(tideCurrent);
         const oceanCurrentScore = scoreOceanCurrentForFishing(oceanCurrent);
         const pressureScore = scorePressureForFishing(pressure);
         const windWaveScore = scoreWindWaveForFishing(wind, gust, wave);
         const timeScore = scoreFishingTime(hour);
 
-        const total = Math.round(
-            (tideCurrentScore * 0.30) +
-            (pressureScore * 0.20) +
-            (oceanCurrentScore * 0.20) +
-            (windWaveScore * 0.20) +
-            (timeScore * 0.10)
-        );
+        const total = Math.round(includeEstimatedTideCurrent
+            ? (tideCurrentScore * 0.30) + (pressureScore * 0.20) + (oceanCurrentScore * 0.20) + (windWaveScore * 0.20) + (timeScore * 0.10)
+            : (pressureScore * 0.29) + (oceanCurrentScore * 0.29) + (windWaveScore * 0.29) + (timeScore * 0.13));
 
         let label;
         if (total >= 85) label = `🔥🔥🔥 ${total}`;
@@ -4101,7 +4141,13 @@
         return {
             total,
             label,
-            details: { tideCurrentScore, oceanCurrentScore, pressureScore, windWaveScore, timeScore }
+            details: {
+                tideCurrentScore: includeEstimatedTideCurrent ? tideCurrentScore : null,
+                oceanCurrentScore,
+                pressureScore,
+                windWaveScore,
+                timeScore
+            }
         };
     }
 
@@ -4125,47 +4171,63 @@
     // V21：安全卡門檻均可設定；共用設定可獨立收合，能見度可選擇忽略，不影響紅／黃燈。
     function processModelData(weather, waveMarine, currentMarine, tideMarine, hazardWeather) {
         tideExtremesByDate = buildTideExtremesByDate(tideMarine);
+        // Index once: avoids repeatedly scanning every API time array for every
+        // forecast hour, and preserves an explicit "missing" result.
+        const makeTimeIndex = source => new Map((source?.time || []).map((time, index) => [time, index]));
+        const includeEstimatedTideCurrent = myLocations[currentLocationKey]?.config?.fish_includeEstimatedTideCurrent
+            ?? DEFAULT_CONFIG.fish_includeEstimatedTideCurrent;
+        const weatherIndex = makeTimeIndex(weather);
+        const waveIndex = makeTimeIndex(waveMarine);
+        const currentIndex = makeTimeIndex(currentMarine);
+        const hazardIndex = makeTimeIndex(hazardWeather);
+        const tideIndex = makeTimeIndex(tideMarine);
+        const currentDailyMeanCache = new Map();
+        const valueAt = (source, key, index) => index !== undefined && isFiniteNumber(source?.[key]?.[index])
+            ? source[key][index]
+            : null;
 
         currentDataByDate = dates.map((d) => {
             const dayData = [];
             for (let h = 0; h < 24; h++) {
                 const targetTimeString = `${d.fullDate}T${String(h).padStart(2, '0')}:00`;
-                const wIdx = weather.time.findIndex(t => t.startsWith(targetTimeString));
-                const waveIdx = waveMarine ? waveMarine.time.findIndex(t => t.startsWith(targetTimeString)) : -1;
-                const currentIdx = currentMarine ? currentMarine.time.findIndex(t => t.startsWith(targetTimeString)) : -1;
+                const wIdx = weatherIndex.get(targetTimeString);
+                const waveIdx = waveIndex.get(targetTimeString);
+                const currentIdx = currentIndex.get(targetTimeString);
 
-                const windSpeed = (wIdx !== -1 && weather.wind_speed_10m[wIdx] !== null) ? weather.wind_speed_10m[wIdx] : 5.0;
-                const windGust = (wIdx !== -1 && weather.wind_gusts_10m[wIdx] !== null) ? weather.wind_gusts_10m[wIdx] : 8.0;
-                const windDirDeg = (wIdx !== -1 && weather.wind_direction_10m && weather.wind_direction_10m[wIdx] !== null) ? weather.wind_direction_10m[wIdx] : 45;
+                // Never invent benign weather values for a missing hour. Null
+                // propagates to the UI and prevents that hour being safety-scored.
+                const windSpeed = valueAt(weather, 'wind_speed_10m', wIdx);
+                const windGust = valueAt(weather, 'wind_gusts_10m', wIdx);
+                const windDirDeg = valueAt(weather, 'wind_direction_10m', wIdx);
                 const windDirText = getWindDirectionText(windDirDeg);
 
-                const weatherCode = (wIdx !== -1 && weather.weather_code[wIdx] !== null) ? weather.weather_code[wIdx] : 0;
-                const apiIsDay = (wIdx !== -1 && weather.is_day && weather.is_day[wIdx] !== null) ? weather.is_day[wIdx] : null;
-                const hazardIdx = hazardWeather?.time ? hazardWeather.time.findIndex(t => t.startsWith(targetTimeString)) : -1;
-                const hazardWeatherCode = (hazardIdx !== -1 && hazardWeather?.weather_code?.[hazardIdx] !== null) ? hazardWeather.weather_code[hazardIdx] : null;
-                const hazardVisibilityM = (hazardIdx !== -1 && hazardWeather?.visibility?.[hazardIdx] !== null) ? hazardWeather.visibility[hazardIdx] : null;
-                const ecmwfVisibilityM = (wIdx !== -1 && weather.visibility && weather.visibility[wIdx] !== null) ? weather.visibility[wIdx] : null;
+                const weatherCode = valueAt(weather, 'weather_code', wIdx);
+                const apiIsDay = valueAt(weather, 'is_day', wIdx);
+                const hazardIdx = hazardIndex.get(targetTimeString);
+                const hazardWeatherCode = valueAt(hazardWeather, 'weather_code', hazardIdx);
+                const hazardVisibilityM = valueAt(hazardWeather, 'visibility', hazardIdx);
+                const ecmwfVisibilityM = valueAt(weather, 'visibility', wIdx);
                 const visibilityM = isFiniteNumber(hazardVisibilityM) ? hazardVisibilityM : ecmwfVisibilityM;
                 
-                const temp = (wIdx !== -1 && weather.temperature_2m[wIdx] !== null) ? weather.temperature_2m[wIdx] : 27.0;
-                const pressure = (wIdx !== -1 && weather.surface_pressure && weather.surface_pressure[wIdx] !== null) ? weather.surface_pressure[wIdx] : 1013.25;
-                const cloudTotal = (wIdx !== -1 && weather.cloud_cover[wIdx] !== null) ? weather.cloud_cover[wIdx] : 40;
-                const precip = (wIdx !== -1 && weather.precipitation[wIdx] !== null) ? weather.precipitation[wIdx] : 0.0;
+                const temp = valueAt(weather, 'temperature_2m', wIdx);
+                const pressure = valueAt(weather, 'surface_pressure', wIdx);
+                const cloudTotal = valueAt(weather, 'cloud_cover', wIdx);
+                const precip = valueAt(weather, 'precipitation', wIdx);
 
-                const waveHeight = (waveIdx !== -1 && waveMarine.wave_height[waveIdx] !== null) ? waveMarine.wave_height[waveIdx] : 1.0;
-                const wavePeriod = (waveIdx !== -1 && waveMarine.wave_period[waveIdx] !== null) ? waveMarine.wave_period[waveIdx] : 7.5;
-                const swellWaveHeight = (waveIdx !== -1 && waveMarine.swell_wave_height && waveMarine.swell_wave_height[waveIdx] !== null) ? waveMarine.swell_wave_height[waveIdx] : waveHeight;
-                const swellWavePeriod = (waveIdx !== -1 && waveMarine.swell_wave_period && waveMarine.swell_wave_period[waveIdx] !== null) ? waveMarine.swell_wave_period[waveIdx] : wavePeriod;
-                const swellWaveDirection = (waveIdx !== -1 && waveMarine.swell_wave_direction && waveMarine.swell_wave_direction[waveIdx] !== null) ? waveMarine.swell_wave_direction[waveIdx] : null;
-                const oceanCurrent = (currentIdx !== -1 && currentMarine.ocean_current_velocity[currentIdx] !== null) ? currentMarine.ocean_current_velocity[currentIdx] : null;
-                const oceanCurrentDir = (currentIdx !== -1 && currentMarine.ocean_current_direction && currentMarine.ocean_current_direction[currentIdx] !== null) ? currentMarine.ocean_current_direction[currentIdx] : null;
-                const tidalResidual = currentIdx !== -1
-                    ? deriveDailyTidalResidual(currentMarine, d.fullDate, currentIdx)
+                const waveHeight = valueAt(waveMarine, 'wave_height', waveIdx);
+                const wavePeriod = valueAt(waveMarine, 'wave_period', waveIdx);
+                const swellWaveHeight = valueAt(waveMarine, 'swell_wave_height', waveIdx);
+                const swellWavePeriod = valueAt(waveMarine, 'swell_wave_period', waveIdx);
+                const swellWaveDirection = valueAt(waveMarine, 'swell_wave_direction', waveIdx);
+                const oceanCurrent = valueAt(currentMarine, 'ocean_current_velocity', currentIdx);
+                const oceanCurrentDir = valueAt(currentMarine, 'ocean_current_direction', currentIdx);
+                const tidalResidual = currentIdx !== undefined
+                    ? deriveDailyTidalResidual(currentMarine, d.fullDate, currentIdx, currentDailyMeanCache)
                     : { speed: null, dir: null };
 
-                const tideHeight = getTideHeightForTime(tideMarine, targetTimeString);
+                const tideHeight = getTideHeightForTime(tideMarine, targetTimeString, tideIndex);
 
-                const hasFishCoreData = isFiniteNumber(tidalResidual.speed) && isFiniteNumber(oceanCurrent) &&
+                const hasFishCoreData = (!includeEstimatedTideCurrent || isFiniteNumber(tidalResidual.speed)) && isFiniteNumber(oceanCurrent) &&
                     isFiniteNumber(pressure) && isFiniteNumber(windSpeed) && isFiniteNumber(windGust) && isFiniteNumber(waveHeight);
                 const hourlyFish = hasFishCoreData
                     ? calculateHourlyFishIndex({
@@ -4175,7 +4237,8 @@
                         wind: windSpeed,
                         gust: windGust,
                         wave: waveHeight,
-                        hour: h
+                        hour: h,
+                        includeEstimatedTideCurrent
                     })
                     : { total: null, label: '— 資料不足', details: null };
                 const fishIndex = hourlyFish.label;
@@ -4185,30 +4248,30 @@
                     hour: h,
                     weather: getWeatherIcon(weatherCode, h, apiIsDay),
                     weatherCode: weatherCode,
-                    wave: parseFloat(waveHeight.toFixed(1)),
-                    wind: parseFloat(windSpeed.toFixed(1)),
-                    gust: parseFloat(windGust.toFixed(1)),
-                    windBeaufort: knotsToBeaufort(windSpeed),
-                    gustBeaufort: knotsToBeaufort(windGust),
+                    wave: isFiniteNumber(waveHeight) ? parseFloat(waveHeight.toFixed(1)) : null,
+                    wind: isFiniteNumber(windSpeed) ? parseFloat(windSpeed.toFixed(1)) : null,
+                    gust: isFiniteNumber(windGust) ? parseFloat(windGust.toFixed(1)) : null,
+                    windBeaufort: isFiniteNumber(windSpeed) ? knotsToBeaufort(windSpeed) : null,
+                    gustBeaufort: isFiniteNumber(windGust) ? knotsToBeaufort(windGust) : null,
                     windDir: windDirText,
-                    windDirDeg: Math.round(windDirDeg),
+                    windDirDeg: isFiniteNumber(windDirDeg) ? Math.round(windDirDeg) : null,
                     current: isFiniteNumber(oceanCurrent) ? parseFloat(oceanCurrent.toFixed(1)) : null,
                     currentDir: isFiniteNumber(oceanCurrentDir) ? Math.round(oceanCurrentDir) : null,
                     currentDirText: isFiniteNumber(oceanCurrentDir) ? `${Math.round(oceanCurrentDir)}°` : '--',
                     tideCurrent: isFiniteNumber(tidalResidual.speed) ? parseFloat(tidalResidual.speed.toFixed(1)) : null,
                     tideDir: isFiniteNumber(tidalResidual.dir) ? Math.round(tidalResidual.dir) : null,
                     tideDirText: isFiniteNumber(tidalResidual.dir) ? `${Math.round(tidalResidual.dir)}°` : '--',
-                    wavePeriod: parseFloat(wavePeriod.toFixed(1)),
-                    swellWave: parseFloat(swellWaveHeight.toFixed(1)),
+                    wavePeriod: isFiniteNumber(wavePeriod) ? parseFloat(wavePeriod.toFixed(1)) : null,
+                    swellWave: isFiniteNumber(swellWaveHeight) ? parseFloat(swellWaveHeight.toFixed(1)) : null,
                     swellDir: isFiniteNumber(swellWaveDirection) ? Math.round(swellWaveDirection) : null,
-                    period: parseFloat(swellWavePeriod.toFixed(1)),
+                    period: isFiniteNumber(swellWavePeriod) ? parseFloat(swellWavePeriod.toFixed(1)) : null,
                     visibilityKm: isFiniteNumber(visibilityM) ? parseFloat((visibilityM / 1000).toFixed(1)) : null,
                     hazardWeatherCode: hazardWeatherCode,
                     thunderstormRisk: isThunderstormCode(hazardWeatherCode),
-                    temp: Math.round(temp),
-                    pressure: Math.round(pressure),
-                    cloud: Math.round(cloudTotal),
-                    precip: precip > 0.1 ? precip.toFixed(1) : '0',
+                    temp: isFiniteNumber(temp) ? Math.round(temp) : null,
+                    pressure: isFiniteNumber(pressure) ? Math.round(pressure) : null,
+                    cloud: isFiniteNumber(cloudTotal) ? Math.round(cloudTotal) : null,
+                    precip: isFiniteNumber(precip) ? (precip > 0.1 ? precip.toFixed(1) : '0') : null,
                     fishIndex: fishIndex,
                     fishScore: hourlyFish.total,
                     fishScoreDetails: hourlyFish.details,
@@ -4221,7 +4284,9 @@
         updateDashboard();
     }
 
-    function generateFallbackData() {
+    // DEVELOPMENT ONLY: intentionally never called by production error paths.
+    // Kept solely for manual layout testing with synthetic values.
+    function generateDevelopmentSampleData() {
         astroDataByDate = dates.map(() => ({
             sunrise: '05:40', sunset: '18:20', moonrise: '17:30', moonset: '04:30'
         }));
@@ -4351,7 +4416,7 @@
         for (let i = 0; i < 24; i += 1) {
             const opt = document.createElement('option');
             opt.value = i;
-            opt.textContent = `${String(i).padStart(2, '0')}:00`;
+            opt.textContent = String(i);
             timeSelect.appendChild(opt);
         }
         timeSelect.value = currentVal < 24 ? currentVal : 0;
@@ -4390,7 +4455,7 @@
         if (button) {
             button.classList.toggle('active', showFullDayForecast);
             button.textContent = showFullDayForecast ? '座釣區間' : '24 小時';
-            button.title = showFullDayForecast ? '目前顯示 00:00～24:00；點擊改回座釣區間' : '點擊顯示 00:00～24:00 全日資料';
+            button.title = showFullDayForecast ? '目前顯示 0～24；點擊改回座釣區間' : '點擊顯示 0～24 全日資料';
         }
         updateDashboard();
     }
@@ -4465,9 +4530,19 @@
     function calculateBoatScore(windowData, cfg, isSpringTide) {
         if (!windowData || !windowData.length) return { totalScore: 0, status: { text: '-', styleClass: '', rating: '-' }, details: {} };
 
+        const scoreFields = ['pressure', 'temp', 'wind'];
+        if (windowData.some(d => scoreFields.some(key => !isFiniteNumber(d[key])))) {
+            return {
+                totalScore: null,
+                status: { text: 'ℹ️ 核心資料不足', styleClass: 'info', rating: '魚情分數暫不計算' },
+                details: { tideScore: null, pressureScore: null, tempScore: null, windFlowScore: null }
+            };
+        }
+
+        const includeEstimatedTideCurrent = cfg.fish_includeEstimatedTideCurrent ?? DEFAULT_CONFIG.fish_includeEstimatedTideCurrent;
         const validCurrents = windowData.map(d => d.current).filter(v => isFiniteNumber(v));
         const validTideCurrents = windowData.map(d => d.tideCurrent).filter(v => isFiniteNumber(v));
-        if (!validCurrents.length || !validTideCurrents.length) {
+        if (!validCurrents.length || (includeEstimatedTideCurrent && !validTideCurrents.length)) {
             return {
                 totalScore: null,
                 status: { text: 'ℹ️ 海流／潮流資料不足', styleClass: 'info', rating: '魚情分數暫不計算' },
@@ -4475,7 +4550,7 @@
             };
         }
         const avgCurrent = validCurrents.reduce((acc, v) => acc + v, 0) / validCurrents.length;
-        const avgTideCurrent = validTideCurrents.reduce((acc, v) => acc + v, 0) / validTideCurrents.length;
+        const avgTideCurrent = validTideCurrents.length ? validTideCurrents.reduce((acc, v) => acc + v, 0) / validTideCurrents.length : null;
         const avgPressure = windowData.reduce((acc, d) => acc + d.pressure, 0) / windowData.length;
         const avgTemp = windowData.reduce((acc, d) => acc + d.temp, 0) / windowData.length;
         const avgWind = windowData.reduce((acc, d) => acc + d.wind, 0) / windowData.length;
@@ -4483,8 +4558,10 @@
         const oceanFlowScore = scoreOceanCurrentForFishing(avgCurrent);
         const tidalFlowScore = scoreTideCurrentForFishing(avgTideCurrent);
         // 潮汐流溝 35% 的內部評分：潮流較直接影響流溝與釣組控制，因此占 65%。
-        let tideScore = Math.round((oceanFlowScore * 0.35) + (tidalFlowScore * 0.65));
-        if (isSpringTide && tidalFlowScore >= 70 && tidalFlowScore <= 100) {
+        let tideScore = includeEstimatedTideCurrent
+            ? Math.round((oceanFlowScore * 0.35) + (tidalFlowScore * 0.65))
+            : Math.round(oceanFlowScore);
+        if (includeEstimatedTideCurrent && isSpringTide && tidalFlowScore >= 70 && tidalFlowScore <= 100) {
             tideScore = Math.min(100, tideScore + 5);
         }
 
@@ -4539,17 +4616,16 @@
         const selectedItem = dayData.find(d => d.chartAbsoluteHour === startHour) || dayData[0];
         const selectedIndex = Math.max(0, dayData.indexOf(selectedItem));
         const selectedHeight = selectedItem?.tideHeight;
-        document.getElementById('tideSelectedTimeDisplay').textContent = selectedItem.time;
+        document.getElementById('tideSelectedTimeDisplay').textContent = formatHourLabel(selectedItem.time);
         document.getElementById('tideSelectedHeightDisplay').textContent = isFiniteNumber(selectedHeight) ? `${selectedHeight.toFixed(2)}m` : '--';
 
         // Title and X axis must describe the same trip range as the curve.
         const tripEnd = dayData[dayData.length - 1];
         // The date rollover is implicit in the left-to-right sequence. Keeping
         // only clock time makes the compact axis substantially easier to scan.
-        const formatChartTime = item => (showFullDayForecast && item.chartAbsoluteHour === 24) ? '24:00' : item.time;
+        const formatChartTime = item => (showFullDayForecast && item.chartAbsoluteHour === 24) ? '24' : formatHourLabel(item.time);
         const titleEl = document.getElementById('tideChartTitle');
-        const chartTitle = showFullDayForecast ? '24 小時潮位走勢圖' : '座釣區間潮位走勢圖';
-        if (titleEl && tripEnd) titleEl.textContent = `${chartTitle}（${formatChartTime(dayData[0])} → ${formatChartTime(tripEnd)}）`;
+        if (titleEl) titleEl.textContent = '潮位走勢圖';
         const axisEl = document.getElementById('tideChartAxis');
         if (axisEl && tripEnd) {
             const span = Math.max(tripEnd.chartOffset || 0, 1);
@@ -4629,7 +4705,7 @@
                         <span>●</span> <span class="tide-type-two-line">${ex.type.replace('潮', '<br>潮')}</span>
                     </div>
                     <div class="tide-extreme-val">${ex.height.toFixed(2)}m</div>
-                    <div class="tide-extreme-time">${ex.time}</div>
+                    <div class="tide-extreme-time">${formatHourLabel(ex.time)}</div>
                 `;
                 extremesGrid.appendChild(card);
             });
@@ -4683,6 +4759,23 @@
         const zeroY = (0 >= chartMin && 0 <= chartMax)
             ? svgHeight - paddingY - ((0 - chartMin) / rangeH) * usableHeight
             : null;
+        // Tide-turn annotations: each extreme gets a colour-coded dot, an exact
+        // value/time label, and a vertical guide to the corresponding X position.
+        const extremeMarkers = displayExtremes
+            .filter(ex => ex.absoluteMinute >= tripStartMinute && ex.absoluteMinute <= tripEndMinute)
+            .map(ex => {
+                const relativeMinutes = ex.absoluteMinute - tripStartMinute;
+                const x = (relativeMinutes / (chartSpan * 60)) * svgWidth;
+                const y = svgHeight - paddingY - ((ex.height - chartMin) / rangeH) * usableHeight;
+                const isHigh = ex.type === '滿潮';
+                const color = isHigh ? '#ef4444' : '#38bdf8';
+                const labelY = isHigh ? Math.max(14, y - 10) : Math.min(svgHeight - 6, y + 18);
+                const label = `${ex.type} ${ex.height.toFixed(2)}m (${ex.time})`;
+                return `
+                    <line x1="${x}" y1="${y}" x2="${x}" y2="${svgHeight - 2}" stroke="${color}" stroke-opacity="0.75" stroke-dasharray="4 4" stroke-width="1.5" />
+                    <circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="#ffffff" stroke-width="2" />
+                    <text x="${x}" y="${labelY}" text-anchor="middle" fill="${color}" font-size="14" font-weight="700" paint-order="stroke" stroke="#0f172a" stroke-width="3" stroke-linejoin="round">${label}</text>`;
+            }).join('');
 
         svg.innerHTML = `
             <defs>
@@ -4695,6 +4788,7 @@
             <polygon points="0,${svgHeight} ${points.join(' ')} ${svgWidth},${svgHeight}" fill="url(#tideGradient)" />
             <polyline points="${points.join(' ')}" fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
             <line x1="${selectedX}" y1="0" x2="${selectedX}" y2="${svgHeight}" stroke="#38bdf8" stroke-dasharray="3 3" stroke-width="1.5" />
+            ${extremeMarkers}
             ${selectedY !== null ? `<circle cx="${selectedX}" cy="${selectedY}" r="6" fill="#ffffff" stroke="#38bdf8" stroke-width="3" />` : ''}
         `;
     }
@@ -4722,7 +4816,7 @@
             { key: 'wind', label: '💨 風速 (kt)' },
             { key: 'gust', label: '💨 陣風 (kt)' },
             { key: 'current', label: '🌊 洋流 (kt)' },
-            { key: 'tideCurrent', label: '↕️ 潮流 (kt)' },
+            { key: 'tideCurrent', label: '↕️ 推估潮流 (kt)' },
             { key: 'wave', label: '🌊 浪高 (m)' },
             { key: 'period', label: '〰️ 涌浪週期 (秒)' },
             { key: 'precip', label: '🌧️ 降水量 (mm)' },
@@ -4796,7 +4890,7 @@
     function renderDataUnavailableDashboard() {
         document.getElementById('forecastTable').innerHTML = '';
         document.getElementById('tideSvg').innerHTML = '<text x="400" y="85" text-anchor="middle" fill="#fbbf24" font-size="18">資料不可用，暫不評估</text>';
-        document.getElementById('tideChartTitle').textContent = '座釣區間潮位走勢圖';
+        document.getElementById('tideChartTitle').textContent = '潮位走勢圖';
         document.getElementById('tideChartAxis').innerHTML = '<span>--</span>';
         document.getElementById('tideExtremesGrid').innerHTML = '';
         ['maxWave', 'maxSwellWave', 'maxPeriod', 'maxWind', 'maxGust', 'minVisibility', 'windCurrentOpposition', 'thunderRisk'].forEach(id => {
@@ -4871,7 +4965,7 @@
             displayData.push({
                 ...item,
                 displayHour: absoluteHour,
-                tableTime: absoluteHour === 24 ? '24:00' : item.time
+                tableTime: absoluteHour === 24 ? '24' : formatHourLabel(item.time)
             });
         });
         // Build the evaluation window across midnight instead of truncating it at 24:00.
@@ -4908,8 +5002,8 @@
         endDate.setDate(endDate.getDate() + endDayOffset);
         const formatShortDate = date => `${date.getMonth() + 1}/${date.getDate()}`;
         const startDate = new Date(`${activeDateInfo.fullDate}T00:00:00`);
-        const startText = `${formatShortDate(startDate)} ${String(startHour).padStart(2, '0')}:00`;
-        const endText = `${formatShortDate(endDate)} ${String(endHour % 24).padStart(2, '0')}:00`;
+        const startText = `${formatShortDate(startDate)} ${startHour}`;
+        const endText = `${formatShortDate(endDate)} ${endHour % 24}`;
         document.getElementById('windowDisplay').textContent = endDayOffset > 0
             ? `評估區間：${startText} → ${endText}（隔日結束）`
             : `評估區間：${startText} → ${endText}`;
@@ -4920,6 +5014,9 @@
             refreshActiveMapLayer(true);
         }
         if (!windowData.length) return;
+
+        const coreSafetyKeys = ['wind', 'gust', 'wave', 'period'];
+        const hasIncompleteSafetyData = windowData.length < windowHours || windowData.some(d => coreSafetyKeys.some(key => !isFiniteNumber(d[key])));
 
         const finiteVals = (key) => windowData.map(d => Number(d[key])).filter(Number.isFinite);
         const maxOf = (key, fallback = null) => { const vals = finiteVals(key); return vals.length ? Math.max(...vals) : fallback; };
@@ -4963,6 +5060,9 @@
 
         const dangerReasons = [];
         const warningReasons = [];
+        if (hasIncompleteSafetyData) {
+            warningReasons.push('⚠️ 此時段核心風浪資料不足，安全結果暫不評估；請重新同步或查閱官方海象。');
+        }
         const limitWave = modeKey === 'sup' ? cfg.sup_maxWave : (cfg.boat_maxWave ?? DEFAULT_CONFIG.boat_maxWave);
         const limitPeriod = modeKey === 'sup' ? cfg.sup_maxPeriod : (cfg.boat_maxPeriod ?? DEFAULT_CONFIG.boat_maxPeriod);
         const limitWind = modeKey === 'sup' ? cfg.sup_maxWind : cfg.boat_windWarn;
@@ -4991,6 +5091,9 @@
         const hasTideCurrentData = windowData.some(d => isFiniteNumber(d.tideCurrent));
         if (!hasCurrentData || !hasTideCurrentData) {
             warningReasons.push('ℹ️ 洋流／潮流預報資料不足，本時段安全評估為部分資料');
+        }
+        if ((cfg.fish_includeEstimatedTideCurrent ?? DEFAULT_CONFIG.fish_includeEstimatedTideCurrent) === false) {
+            warningReasons.push('ℹ️ 推估潮流僅供趨勢參考，目前未納入魚情分數');
         }
 
         // 第二層：注意項目，不單獨判定為紅燈；相關門檻亦可設定。
@@ -5039,6 +5142,10 @@
             supBox.className = 'result-box danger';
             supBadge.className = 'status-badge danger';
             supBadge.textContent = modeKey === 'sup' ? '❌ 觸發 SUP 安全否決／超標' : '❌ 觸發船釣安全否決／超標';
+        } else if (hasIncompleteSafetyData) {
+            supBox.className = 'result-box info';
+            supBadge.className = 'status-badge info';
+            supBadge.textContent = 'ℹ️ 資料不足，暫不評估';
         } else if (warningReasons.length > 0) {
             supBox.className = 'result-box warning';
             supBadge.className = 'status-badge warning';
@@ -5046,7 +5153,7 @@
         } else {
             supBox.className = 'result-box success';
             supBadge.className = 'status-badge success';
-            supBadge.textContent = '✅ 未觸發本頁安全門檻';
+            supBadge.textContent = '✅ 出發釣魚去';
         }
 
         if (allReasons.length) {
