@@ -2746,6 +2746,124 @@
     let mapDataLayerGroup = null;
     let mapLayerRequestSeq = 0;
     let mapLayerMoveTimer = null;
+    // 上次地圖圖層實際抓資料時的範圍；小幅拖動不重抓，以節省 Open-Meteo 免費額度。
+    let lastMapLayerFetchView = null;
+
+    /*
+     * 2026-11-18 Open-Meteo 連線穩定性
+     * - api.open-meteo.com 偶爾會卡住不回應，或因共用 IP 被限流（429）。
+     * - 逾時、網路錯誤、429、5xx 會自動重試（指數退避）；4xx 參數錯誤不重試。
+     * - 每次嘗試有獨立逾時，外部 AbortController 中止時立即停止。
+     */
+    function sleepWithSignal(ms, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+            const timer = setTimeout(resolve, ms);
+            signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(new DOMException('Aborted', 'AbortError'));
+            }, { once: true });
+        });
+    }
+
+    async function fetchJsonWithRetry(url, { label = 'API', signal, timeoutMs = 12000, retries = 2 } = {}) {
+        let lastErr;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+            const attemptController = new AbortController();
+            const onOuterAbort = () => attemptController.abort();
+            signal?.addEventListener('abort', onOuterAbort, { once: true });
+            let timedOut = false;
+            const timer = setTimeout(() => { timedOut = true; attemptController.abort(); }, timeoutMs);
+            let retryable = true;
+            let retryAfterMs = 0;
+            try {
+                const res = await fetch(url, { signal: attemptController.signal });
+                const data = await res.json().catch(() => null);
+                if (res.ok && data) return data;
+                const reason = data?.reason || res.statusText || '無回應內容';
+                lastErr = new Error(`${label} API ${res.status}: ${reason}`);
+                lastErr.status = res.status;
+                retryable = res.status === 429 || res.status >= 500 || res.ok;
+                if (res.status === 429) {
+                    const ra = Number(res.headers.get('Retry-After'));
+                    retryAfterMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 10000) : 4000;
+                }
+            } catch (err) {
+                if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+                lastErr = timedOut
+                    ? new Error(`${label} API 逾時（${Math.round(timeoutMs / 1000)} 秒無回應）`)
+                    : new Error(`${label} API 連線失敗：${err?.message || err}`);
+                lastErr.name = timedOut ? 'TimeoutError' : 'NetworkError';
+            } finally {
+                clearTimeout(timer);
+                signal?.removeEventListener('abort', onOuterAbort);
+            }
+            if (!retryable || attempt === retries) break;
+            const backoff = Math.max(retryAfterMs, 1200 * Math.pow(2, attempt)) + Math.random() * 400;
+            console.warn(`${label} 第 ${attempt + 1} 次失敗，${Math.round(backoff)}ms 後重試：`, lastErr.message);
+            await sleepWithSignal(backoff, signal);
+        }
+        throw lastErr;
+    }
+
+    // 上次成功的預報資料（每個釣點＋波浪模式一份），API 失敗時當作備援並標示資料時間。
+    const FORECAST_CACHE_PREFIX = 'sunnyfish-forecast-cache-v1:';
+    const FORECAST_CACHE_MAX_AGE_MS = 48 * 3600 * 1000;
+    const FORECAST_CACHE_MAX_ENTRIES = 6;
+
+    function readForecastCache(key) {
+        try {
+            const raw = localStorage.getItem(FORECAST_CACHE_PREFIX + key);
+            if (!raw) return null;
+            const entry = JSON.parse(raw);
+            if (!entry?.savedAt || Date.now() - entry.savedAt > FORECAST_CACHE_MAX_AGE_MS) return null;
+            return entry;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function writeForecastCache(key, sources) {
+        try {
+            const previous = readForecastCache(key) || {};
+            const entry = { savedAt: Date.now(), sourceSavedAt: { ...(previous.sourceSavedAt || {}) } };
+            // 這次失敗的來源也要保留舊快取，所以迴圈要涵蓋新舊兩邊的來源名稱。
+            const names = new Set([
+                ...Object.keys(sources),
+                ...Object.keys(previous).filter(k => k !== 'savedAt' && k !== 'sourceSavedAt')
+            ]);
+            for (const name of names) {
+                const value = sources[name];
+                if (value) {
+                    entry[name] = value;
+                    entry.sourceSavedAt[name] = Date.now();
+                } else if (previous[name]) {
+                    entry[name] = previous[name];
+                }
+            }
+            // 只保留最近幾個釣點，避免 localStorage 爆量。
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(FORECAST_CACHE_PREFIX) && k !== FORECAST_CACHE_PREFIX + key) keys.push(k);
+            }
+            const dated = keys.map(k => {
+                try { return { k, t: JSON.parse(localStorage.getItem(k))?.savedAt || 0 }; } catch (e) { return { k, t: 0 }; }
+            }).sort((a, b) => b.t - a.t);
+            dated.slice(FORECAST_CACHE_MAX_ENTRIES - 1).forEach(({ k }) => localStorage.removeItem(k));
+            localStorage.setItem(FORECAST_CACHE_PREFIX + key, JSON.stringify(entry));
+        } catch (e) {
+            console.warn('預報快取寫入失敗：', e);
+        }
+    }
+
+    function formatAgeText(ms) {
+        const min = Math.max(1, Math.round(ms / 60000));
+        if (min < 60) return `${min} 分鐘前`;
+        const hr = Math.round(min / 60);
+        return `${hr} 小時前`;
+    }
     const mapLayerCache = new Map();
 
     /*
@@ -3101,7 +3219,8 @@
                 }
             } catch (e) {}
         }
-        const rows = 4, cols = 4;
+        // Open-Meteo 每個座標都算一次呼叫；3×3＝9 點，比 4×4 省約 44% 額度。
+        const rows = 3, cols = 3;
         const pts = [];
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
@@ -3184,9 +3303,7 @@
                 ? 'wind_speed_10m,wind_gusts_10m,wind_direction_10m'
                 : 'precipitation,weather_code';
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=${vars}&models=ecmwf_ifs&timezone=Asia%2FTaipei&wind_speed_unit=kn&start_date=${dt.date}&end_date=${dt.date}`;
-            const res = await fetch(url);
-            const json = await res.json();
-            if (!res.ok) throw new Error(json?.reason || `Weather API ${res.status}`);
+            const json = await fetchJsonWithRetry(url, { label: '地圖天氣圖層', retries: 1 });
             return normalizeMultiLocationResponse(json);
         }
         // 洋流與潮流圖層都取海流速度＋方向。
@@ -3194,9 +3311,7 @@
         const vars = 'ocean_current_velocity,ocean_current_direction';
         const model = 'meteofrance_currents';
         const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&hourly=${vars}&models=${model}&timezone=Asia%2FTaipei&wind_speed_unit=kn&cell_selection=sea&start_date=${dt.date}&end_date=${dt.date}`;
-        const res = await fetch(url);
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.reason || `Marine API ${res.status}`);
+        const json = await fetchJsonWithRetry(url, { label: '地圖海流圖層', retries: 1 });
         return normalizeMultiLocationResponse(json);
     }
 
@@ -3294,6 +3409,10 @@
                 }
             }
             if (requestSeq !== mapLayerRequestSeq || activeMapDataLayer !== layer) return;
+            try {
+                const c = map.getCenter();
+                lastMapLayerFetchView = { lat: c.lat, lng: c.lng, zoom: map.getZoom() };
+            } catch (e) {}
             renderMapLayerData(layer, blocks, dt);
             setMapLayerUiState(layer, false);
         } catch (err) {
@@ -3330,7 +3449,22 @@
         map.on('moveend', () => {
             if (!activeMapDataLayer) return;
             clearTimeout(mapLayerMoveTimer);
-            mapLayerMoveTimer = setTimeout(() => refreshActiveMapLayer(true), 450);
+            mapLayerMoveTimer = setTimeout(() => {
+                // 只有縮放改變，或中心移動超過可視範圍的 1/3 才重抓，
+                // 小幅拖動沿用現有圖層，避免每拖一下就耗掉 9 次 API 額度。
+                const prev = lastMapLayerFetchView;
+                if (prev) {
+                    const c = map.getCenter();
+                    const b = map.getBounds();
+                    const latSpan = b.getNorth() - b.getSouth();
+                    const lonSpan = b.getEast() - b.getWest();
+                    const smallMove = map.getZoom() === prev.zoom
+                        && Math.abs(c.lat - prev.lat) < latSpan / 3
+                        && Math.abs(c.lng - prev.lng) < lonSpan / 3;
+                    if (smallMove) return;
+                }
+                refreshActiveMapLayer(true);
+            }, 450);
         });
 
         map.on('click', (e) => {
@@ -3892,74 +4026,95 @@
         // 多抓前一天並請求 14 天；較長期時段若來源模型尚未提供資料，前端會明確標示資料不足。
         const tideUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=sea_level_height_msl&models=best_match&timezone=Asia%2FTaipei&cell_selection=sea&past_days=1&forecast_days=14`;
 
-        const fetchWithTimeout = (url, timeoutMs = 15000) => {
-            // Timeout belongs to this request only. It must not abort the other
-            // four sources, especially optional tide/hazard requests.
-            let timer;
-            const timeout = new Promise((_, reject) => {
-                timer = setTimeout(() => reject(new DOMException('Request timed out', 'TimeoutError')), timeoutMs);
-            });
-            return Promise.race([fetch(url, { signal: controller.signal }), timeout])
-                .finally(() => clearTimeout(timer));
-        };
+        // 快取鍵綁定座標與波浪模式，避免把別的釣點／模式的資料拿來用。
+        const cacheKey = `${loc.lat.toFixed(4)},${loc.lon.toFixed(4)}|${waveModel.apiModel}`;
+        const sourceDefs = [
+            { name: 'weather', label: 'ECMWF IFS 天氣', url: weatherUrl, core: true },
+            { name: 'wave', label: `${waveModel.name} 波浪`, url: waveUrl, core: true },
+            { name: 'current', label: '海流', url: currentUrl, core: true },
+            { name: 'tide', label: '潮位', url: tideUrl, core: false },
+            { name: 'hazard', label: '雷雨／能見度', url: hazardUrl, core: false },
+        ];
 
         try {
-            // Weather, wave, and current are core sources. Tide and hazard data
-            // remain optional so their outage does not invalidate core data.
-            const tideRequest = fetchWithTimeout(tideUrl);
-            const hazardRequest = fetchWithTimeout(hazardUrl);
-            const [weatherResRaw, waveResRaw, currentResRaw] = await Promise.all([
-                fetchWithTimeout(weatherUrl), fetchWithTimeout(waveUrl), fetchWithTimeout(currentUrl),
-            ]);
-            const [tideResult, hazardResult] = await Promise.allSettled([
-                tideRequest, hazardRequest
-            ]);
+            // 五個來源各自重試、各自成敗，不再因為其中一支卡住就整頁失敗。
+            const results = await Promise.allSettled(sourceDefs.map(def =>
+                fetchJsonWithRetry(def.url, { label: def.label, signal: controller.signal, retries: def.core ? 2 : 1 })
+            ));
             if (!isCurrentRequest()) return;
-            // Keep the existing response parser and make a rejected optional
-            // request look like a failed HTTP response handled by its local catch.
-            const unavailableResponse = { ok: false, status: 0, statusText: 'Unavailable', json: async () => null };
-            const tideResRaw = tideResult.status === 'fulfilled' ? tideResult.value : unavailableResponse;
-            const hazardResRaw = hazardResult.status === 'fulfilled' ? hazardResult.value : unavailableResponse;
 
-            async function readApiResponse(res, label) {
-                const data = await res.json().catch(() => null);
-                if (!res.ok) {
-                    const reason = data?.reason || `${res.status} ${res.statusText}`;
-                    throw new Error(`${label} API ${res.status}: ${reason}`);
+            const fresh = {};
+            const errors = [];
+            results.forEach((r, i) => {
+                const def = sourceDefs[i];
+                if (r.status === 'fulfilled' && r.value?.hourly) {
+                    fresh[def.name] = r.value;
+                } else {
+                    const reason = r.status === 'rejected' ? r.reason : new Error(`${def.label} 回傳資料結構不完整`);
+                    if (reason?.name === 'AbortError') return;
+                    errors.push({ def, err: reason });
+                    console.warn(`${def.label} 讀取失敗：`, reason);
                 }
-                return data;
+            });
+
+            // 有新資料就先存起來（失敗的來源保留舊快取）。
+            if (Object.keys(fresh).length) writeForecastCache(cacheKey, fresh);
+
+            // 失敗的來源用上次成功的快取補上。
+            const cache = readForecastCache(cacheKey);
+            const used = {};
+            const fromCache = [];
+            const missing = [];
+            for (const def of sourceDefs) {
+                if (fresh[def.name]) {
+                    used[def.name] = fresh[def.name];
+                } else if (cache?.[def.name]?.hourly) {
+                    used[def.name] = cache[def.name];
+                    const savedAt = cache.sourceSavedAt?.[def.name] || cache.savedAt;
+                    fromCache.push({ def, age: Date.now() - savedAt });
+                } else {
+                    missing.push(def);
+                }
             }
 
-            const [weatherRes, waveRes, currentRes] = await Promise.all([
-                readApiResponse(weatherResRaw, 'ECMWF IFS'),
-                readApiResponse(waveResRaw, waveModel.name),
-                readApiResponse(currentResRaw, 'Ocean Current')
-            ]);
-
-            let tideRes = null;
-            try {
-                tideRes = await readApiResponse(tideResRaw, 'Tide / Sea Level');
-            } catch (tideErr) {
-                console.warn('潮位 API 讀取失敗：', tideErr);
+            const hasAnyCore = sourceDefs.some(def => def.core && used[def.name]);
+            if (!hasAnyCore) {
+                const err = new Error(errors.map(e => e.err?.message).filter(Boolean).join('\n') || '資料來源無法連線');
+                throw err;
             }
 
-            let hazardRes = null;
-            try {
-                hazardRes = await readApiResponse(hazardResRaw, 'Weather Hazard Best Match');
-            } catch (hazardErr) {
-                console.warn('雷雨／能見度輔助資料讀取失敗：', hazardErr);
-            }
+            tideDataSource = used.tide?.hourly?.sea_level_height_msl ? 'open-meteo' : 'none';
+            forecastDataAvailable = true;
 
-            if (weatherRes?.hourly && waveRes?.hourly && currentRes?.hourly) {
-                tideDataSource = tideRes?.hourly?.sea_level_height_msl ? 'open-meteo' : 'none';
-                forecastDataAvailable = true;
-                statusEl.textContent = tideDataSource === 'open-meteo' ? '✅ 已同步' : '⚠️ 部分同步';
-                statusEl.style.color = tideDataSource === 'open-meteo' ? 'var(--success-color)' : 'var(--warning-color)';
-                if (weatherRes.daily) processAstroData(weatherRes.daily);
-                processModelData(weatherRes.hourly, waveRes.hourly, currentRes.hourly, tideRes?.hourly || null, hazardRes?.hourly || null);
+            const tips = [];
+            if (fromCache.length) tips.push('使用快取：' + fromCache.map(c => `${c.def.label}（${formatAgeText(c.age)}）`).join('、'));
+            if (missing.length) tips.push('缺少：' + missing.map(d => d.label).join('、'));
+            if (errors.length) tips.push('錯誤：\n' + errors.map(e => e.err?.message).filter(Boolean).join('\n'));
+
+            const coreMissing = missing.some(d => d.core);
+            const coreFromCache = fromCache.some(c => c.def.core);
+            if (!fromCache.length && !missing.length) {
+                statusEl.textContent = '✅ 已同步';
+                statusEl.style.color = 'var(--success-color)';
+            } else if (coreFromCache && !coreMissing && Object.keys(fresh).length === 0) {
+                const oldest = Math.max(...fromCache.map(c => c.age));
+                statusEl.textContent = `🕒 ${formatAgeText(oldest)}資料`;
+                statusEl.style.color = 'var(--warning-color)';
             } else {
-                throw new Error('模型回傳資料結構不完整');
+                statusEl.textContent = '⚠️ 部分同步';
+                statusEl.style.color = 'var(--warning-color)';
             }
+            statusEl.title = tips.join('\n') || '所有資料來源已更新';
+
+            if (used.weather?.daily) processAstroData(used.weather.daily);
+            else astroDataByDate = [];
+            processModelData(
+                used.weather?.hourly || null,
+                used.wave?.hourly || null,
+                used.current?.hourly || null,
+                used.tide?.hourly || null,
+                used.hazard?.hourly || null
+            );
         } catch (err) {
             if (err?.name === 'AbortError' || !isCurrentRequest()) return;
             console.error('fetchSunnyFishData:', err);
