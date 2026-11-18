@@ -23,6 +23,9 @@
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
+    <!-- SunCalc：天氣 API 沒給日出／月出時，在本機計算天文時間 -->
+    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
+
     <style>
         :root {
             --bg-color: #0f172a;
@@ -2807,6 +2810,166 @@
         throw lastErr;
     }
 
+    // ===== 備援天氣來源：MET Norway（挪威氣象局，免金鑰、可跨網域）=====
+    // Open-Meteo 天氣 API 失敗時改用，輸出格式轉成和 Open-Meteo hourly 相同的欄位。
+    // 注意：MET 在台灣沒有陣風與能見度；陣風以 10m 風速 × 1.4 估算（海面常用陣風係數），
+    // 氣壓為海平面氣壓（Open-Meteo 是地面氣壓，低海拔差異約數 hPa）。
+    const MET_GUST_FACTOR = 1.4;
+    const MS_TO_KN = 1.943844;
+
+    function metSymbolToWmo(symbol) {
+        if (!symbol) return null;
+        const s = String(symbol).replace(/_(day|night|polartwilight)$/, '');
+        if (s.includes('thunder')) return 95;
+        if (s === 'clearsky') return 0;
+        if (s === 'fair') return 1;
+        if (s === 'partlycloudy') return 2;
+        if (s === 'cloudy') return 3;
+        if (s === 'fog') return 45;
+        const heavy = s.startsWith('heavy');
+        const light = s.startsWith('light');
+        if (s.includes('snow')) return s.includes('showers') ? (heavy ? 86 : 85) : (heavy ? 75 : light ? 71 : 73);
+        if (s.includes('showers')) return heavy ? 82 : light ? 80 : 81;
+        if (s.includes('rain') || s.includes('sleet')) return heavy ? 65 : light ? 61 : 63;
+        return null;
+    }
+
+    function metSymbolIsDay(symbol) {
+        if (!symbol) return null;
+        if (/_day$/.test(symbol)) return 1;
+        if (/_(night|polartwilight)$/.test(symbol)) return 0;
+        return null;
+    }
+
+    // 台灣固定 UTC+8、無日光節約時間。
+    function toTaipeiHourKey(ms) {
+        return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 13) + ':00';
+    }
+
+    async function fetchMetNorwayWeather(loc, signal) {
+        const lat = Number(loc.lat).toFixed(4);
+        const lon = Number(loc.lon).toFixed(4);
+        const json = await fetchJsonWithRetry(
+            `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${lat}&lon=${lon}`,
+            { label: 'MET Norway 天氣（備援）', signal, retries: 1 }
+        );
+        const series = json?.properties?.timeseries;
+        if (!Array.isArray(series) || !series.length) throw new Error('MET Norway 回傳資料結構不完整');
+
+        const HOUR = 3600 * 1000;
+        const points = series.map(p => {
+            const d = p.data?.instant?.details || {};
+            const wind = Number.isFinite(d.wind_speed) ? d.wind_speed * MS_TO_KN : null;
+            const dir = Number.isFinite(d.wind_from_direction) ? d.wind_from_direction : null;
+            return {
+                ms: Date.parse(p.time),
+                temp: d.air_temperature ?? null,
+                pressure: d.air_pressure_at_sea_level ?? null,
+                cloud: d.cloud_area_fraction ?? null,
+                wind,
+                dir,
+                // 風向用向量內插，避免 350° 與 10° 之間內插成 180°。
+                u: wind !== null && dir !== null ? wind * Math.sin(dir * Math.PI / 180) : null,
+                v: wind !== null && dir !== null ? wind * Math.cos(dir * Math.PI / 180) : null,
+                next1: p.data?.next_1_hours,
+                next6: p.data?.next_6_hours
+            };
+        }).filter(p => Number.isFinite(p.ms)).sort((a, b) => a.ms - b.ms);
+
+        const startMs = Math.ceil(points[0].ms / HOUR) * HOUR;
+        const endMs = points[points.length - 1].ms;
+        const hourMs = [];
+        for (let t = startMs; t <= endMs; t += HOUR) hourMs.push(t);
+
+        // 降水量與天氣符號：優先用逐時（next_1_hours），之後 6 小時區段平均分攤。
+        const precipByMs = new Map();
+        const symbolByMs = new Map();
+        points.forEach(p => {
+            if (p.next1) {
+                precipByMs.set(p.ms, p.next1.details?.precipitation_amount ?? null);
+                symbolByMs.set(p.ms, p.next1.summary?.symbol_code ?? null);
+            }
+        });
+        points.forEach(p => {
+            if (p.next1 || !p.next6) return;
+            const amount = p.next6.details?.precipitation_amount;
+            for (let k = 0; k < 6; k++) {
+                const t = p.ms + k * HOUR;
+                if (!precipByMs.has(t)) precipByMs.set(t, Number.isFinite(amount) ? amount / 6 : null);
+                if (!symbolByMs.has(t)) symbolByMs.set(t, p.next6.summary?.symbol_code ?? null);
+            }
+        });
+
+        const lerp = (a, b, f) => (a === null || b === null ? null : a + (b - a) * f);
+        const hourly = {
+            time: [], temperature_2m: [], wind_speed_10m: [], wind_gusts_10m: [], wind_direction_10m: [],
+            surface_pressure: [], cloud_cover: [], precipitation: [], weather_code: [], visibility: [], is_day: []
+        };
+        let j = 0;
+        hourMs.forEach(t => {
+            while (j < points.length - 2 && points[j + 1].ms <= t) j++;
+            const p0 = points[j];
+            const p1 = points[Math.min(j + 1, points.length - 1)];
+            let rec = null;
+            if (p0.ms === t) rec = p0;
+            else if (p1.ms === t) rec = p1;
+            else if (p0.ms < t && t < p1.ms && p1.ms - p0.ms <= 6 * HOUR) {
+                const f = (t - p0.ms) / (p1.ms - p0.ms);
+                const u = lerp(p0.u, p1.u, f);
+                const v = lerp(p0.v, p1.v, f);
+                rec = {
+                    temp: lerp(p0.temp, p1.temp, f),
+                    pressure: lerp(p0.pressure, p1.pressure, f),
+                    cloud: lerp(p0.cloud, p1.cloud, f),
+                    wind: lerp(p0.wind, p1.wind, f),
+                    dir: u !== null && v !== null ? (Math.atan2(u, v) * 180 / Math.PI + 360) % 360 : null
+                };
+            }
+            const symbol = symbolByMs.get(t) ?? null;
+            const round1 = x => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
+            hourly.time.push(toTaipeiHourKey(t));
+            hourly.temperature_2m.push(round1(rec?.temp));
+            hourly.wind_speed_10m.push(round1(rec?.wind));
+            hourly.wind_gusts_10m.push(round1(Number.isFinite(rec?.wind) ? rec.wind * MET_GUST_FACTOR : null));
+            hourly.wind_direction_10m.push(Number.isFinite(rec?.dir) ? Math.round(rec.dir) : null);
+            hourly.surface_pressure.push(round1(rec?.pressure));
+            hourly.cloud_cover.push(Number.isFinite(rec?.cloud) ? Math.round(rec.cloud) : null);
+            hourly.precipitation.push(round1(precipByMs.get(t) ?? null));
+            hourly.weather_code.push(metSymbolToWmo(symbol));
+            hourly.visibility.push(null);
+            hourly.is_day.push(metSymbolIsDay(symbol));
+        });
+        return { hourly, _fallback: 'MET Norway', _gustEstimated: true };
+    }
+
+    // 天文資料備援：天氣 API 沒有 daily（例如改用 MET Norway）時，用 SunCalc 在本機計算。
+    function computeAstroLocally(lat, lon) {
+        if (typeof SunCalc === 'undefined') return null;
+        const HOUR = 3600 * 1000;
+        // 輸出和 Open-Meteo daily 相同的 "YYYY-MM-DDTHH:MM"（台北時間）。
+        const fmt = dt => (dt instanceof Date && !isNaN(dt) ? new Date(dt.getTime() + 8 * HOUR).toISOString().slice(0, 16) : null);
+        const days = dates.map(d => {
+            const noon = new Date(`${d.fullDate}T12:00:00+08:00`);
+            const sun = SunCalc.getTimes(noon, lat, lon);
+            // getMoonTimes 以 UTC 日界計算；台北的一天橫跨兩個 UTC 日，兩天都算再挑落在當天的。
+            const dayStart = Date.parse(`${d.fullDate}T00:00:00+08:00`);
+            const dayEnd = dayStart + 24 * HOUR;
+            const pick = key => {
+                const hits = [new Date(dayStart), new Date(dayStart + 12 * HOUR)]
+                    .map(t => SunCalc.getMoonTimes(t, lat, lon, true)[key])
+                    .filter(t => t instanceof Date && t.getTime() >= dayStart && t.getTime() < dayEnd);
+                return hits.length ? fmt(hits[0]) : null;
+            };
+            return { sunrise: fmt(sun.sunrise), sunset: fmt(sun.sunset), moonrise: pick('rise'), moonset: pick('set') };
+        });
+        return {
+            sunrise: days.map(x => x.sunrise),
+            sunset: days.map(x => x.sunset),
+            moonrise: days.map(x => x.moonrise),
+            moonset: days.map(x => x.moonset)
+        };
+    }
+
     // 上次成功的預報資料（每個釣點＋波浪模式一份），API 失敗時當作備援並標示資料時間。
     const FORECAST_CACHE_PREFIX = 'sunnyfish-forecast-cache-v1:';
     const FORECAST_CACHE_MAX_AGE_MS = 48 * 3600 * 1000;
@@ -3949,6 +4112,8 @@
     }
 
     function getWeatherIcon(code, hour, apiIsDay = null) {
+        // 沒有天氣資料時不要預設顯示晴天。
+        if (code === null || code === undefined) return '--';
         const isDay = apiIsDay !== null ? Number(apiIsDay) === 1 : (hour >= 6 && hour < 18);
         if (code === 0) return isDay ? '☀️' : '🌙';          
         if (code === 1) return isDay ? '🌤️' : '🌙';         
@@ -4028,19 +4193,37 @@
 
         // 快取鍵綁定座標與波浪模式，避免把別的釣點／模式的資料拿來用。
         const cacheKey = `${loc.lat.toFixed(4)},${loc.lon.toFixed(4)}|${waveModel.apiModel}`;
+        // Open-Meteo 天氣主機失敗時，天氣與雷雨代碼改用 MET Norway（同一次刷新只抓一次）。
+        let metPromise = null;
+        const getMet = () => (metPromise ??= fetchMetNorwayWeather(loc, controller.signal));
         const sourceDefs = [
-            { name: 'weather', label: 'ECMWF IFS 天氣', url: weatherUrl, core: true },
+            { name: 'weather', label: 'ECMWF IFS 天氣', url: weatherUrl, core: true, fallback: getMet },
             { name: 'wave', label: `${waveModel.name} 波浪`, url: waveUrl, core: true },
             { name: 'current', label: '海流', url: currentUrl, core: true },
             { name: 'tide', label: '潮位', url: tideUrl, core: false },
-            { name: 'hazard', label: '雷雨／能見度', url: hazardUrl, core: false },
+            { name: 'hazard', label: '雷雨／能見度', url: hazardUrl, core: false,
+              fallback: async () => {
+                  const met = await getMet();
+                  return { hourly: { time: met.hourly.time, weather_code: met.hourly.weather_code, visibility: met.hourly.visibility }, _fallback: 'MET Norway' };
+              } },
         ];
 
         try {
             // 五個來源各自重試、各自成敗，不再因為其中一支卡住就整頁失敗。
-            const results = await Promise.allSettled(sourceDefs.map(def =>
-                fetchJsonWithRetry(def.url, { label: def.label, signal: controller.signal, retries: def.core ? 2 : 1 })
-            ));
+            // 有備援的來源：主來源只重試 1 次就改走備援，避免使用者等太久。
+            const results = await Promise.allSettled(sourceDefs.map(async def => {
+                try {
+                    return await fetchJsonWithRetry(def.url, {
+                        label: def.label, signal: controller.signal,
+                        retries: def.fallback ? 1 : (def.core ? 2 : 1)
+                    });
+                } catch (err) {
+                    if (err?.name === 'AbortError' || !def.fallback) throw err;
+                    console.warn(`${def.label} 失敗，改用備援來源：`, err?.message);
+                    const data = await def.fallback();
+                    return { ...data, _primaryError: err?.message };
+                }
+            }));
             if (!isCurrentRequest()) return;
 
             const fresh = {};
@@ -4087,6 +4270,12 @@
             forecastDataAvailable = true;
 
             const tips = [];
+            const viaFallback = sourceDefs.filter(def => fresh[def.name]?._fallback);
+            if (viaFallback.length) {
+                tips.push('備援來源：' + viaFallback.map(def => `${def.label} → ${fresh[def.name]._fallback}`).join('、'));
+                if (fresh.weather?._gustEstimated) tips.push(`陣風為估算值（風速 × ${MET_GUST_FACTOR}），氣壓為海平面氣壓`);
+            }
+            if (used.weather?._gustEstimated && !fresh.weather) tips.push(`快取天氣來自 MET Norway：陣風為估算值（風速 × ${MET_GUST_FACTOR}）`);
             if (fromCache.length) tips.push('使用快取：' + fromCache.map(c => `${c.def.label}（${formatAgeText(c.age)}）`).join('、'));
             if (missing.length) tips.push('缺少：' + missing.map(d => d.label).join('、'));
             if (errors.length) tips.push('錯誤：\n' + errors.map(e => e.err?.message).filter(Boolean).join('\n'));
@@ -4094,7 +4283,7 @@
             const coreMissing = missing.some(d => d.core);
             const coreFromCache = fromCache.some(c => c.def.core);
             if (!fromCache.length && !missing.length) {
-                statusEl.textContent = '✅ 已同步';
+                statusEl.textContent = viaFallback.length ? '✅ 備援同步' : '✅ 已同步';
                 statusEl.style.color = 'var(--success-color)';
             } else if (coreFromCache && !coreMissing && Object.keys(fresh).length === 0) {
                 const oldest = Math.max(...fromCache.map(c => c.age));
@@ -4106,7 +4295,8 @@
             }
             statusEl.title = tips.join('\n') || '所有資料來源已更新';
 
-            if (used.weather?.daily) processAstroData(used.weather.daily);
+            const astroDaily = used.weather?.daily || computeAstroLocally(loc.lat, loc.lon);
+            if (astroDaily) processAstroData(astroDaily);
             else astroDataByDate = [];
             processModelData(
                 used.weather?.hourly || null,
@@ -5000,17 +5190,18 @@
                     : (d[r.key] !== undefined && d[r.key] !== null ? d[r.key] : '--');
                 if (r.key === 'wind' || r.key === 'gust') {
                     // Open-Meteo 的 wind_direction_10m 是「來向」；箭頭改成風吹去的方向。
-                    const hasWindDir = Number.isFinite(Number(d.windDirDeg));
+                    const hasWindDir = d.windDirDeg !== null && d.windDirDeg !== undefined && Number.isFinite(Number(d.windDirDeg));
                     const flowDir = hasWindDir ? (Number(d.windDirDeg) + 180) % 360 : 0;
                     const arrow = hasWindDir
                         ? `<span class="inline-dir-arrow" title="風向：${d.windDir || '--'}" style="transform:rotate(${flowDir}deg);">↑</span>`
                         : '';
-                    if (r.key === 'wind') {
-                        cellValue = `${d.wind} ${arrow}<br><span style="font-size:0.4rem; font-weight:normal;">(${d.windBeaufort}級)</span>`;
-                    } else {
-                        // API 無獨立的陣風方向，陣風箭頭沿用同時段 10m 風向作方向參考。
-                        cellValue = `${d.gust} ${arrow}<br><span style="font-size:0.4rem; font-weight:normal;">(${d.gustBeaufort}級)</span>`;
-                    }
+                    // 無資料時顯示 --，不要把 null 印出來。
+                    const speed = r.key === 'wind' ? d.wind : d.gust;
+                    const beaufort = r.key === 'wind' ? d.windBeaufort : d.gustBeaufort;
+                    // API 無獨立的陣風方向，陣風箭頭沿用同時段 10m 風向作方向參考。
+                    cellValue = speed === null || speed === undefined
+                        ? '--'
+                        : `${speed} ${arrow}<br><span style="font-size:0.4rem; font-weight:normal;">(${beaufort}級)</span>`;
                 } else if (r.key === 'current') {
                     const hasDir = Number.isFinite(Number(d.currentDir));
                     const arrow = hasDir
