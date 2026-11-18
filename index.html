@@ -5308,7 +5308,15 @@
             displayHours.push(absoluteHour);
         }
         if (displayHours[displayHours.length - 1] !== tableEndHour) displayHours.push(tableEndHour);
+        // 已經過去的時段不顯示（以目前整點為界，現在這一小時仍保留）。
+        const nowHourMs = new Date().setMinutes(0, 0, 0);
+        const selectedDayStartMs = new Date(`${activeDateInfo.fullDate}T00:00:00`).getTime();
+        let hiddenPastColumns = 0;
         displayHours.forEach(absoluteHour => {
+            if (selectedDayStartMs + absoluteHour * 3600 * 1000 < nowHourMs) {
+                hiddenPastColumns++;
+                return;
+            }
             const dayOffset = Math.floor(absoluteHour / 24);
             const hour = absoluteHour % 24;
             const item = currentDataByDate[selectedDateIndex + dayOffset]?.find(d => d.hour === hour);
@@ -5361,6 +5369,10 @@
 
         renderTideChart(tideChartData, startHour);
         renderTable(displayData, startHour, endHour);
+        if (!displayData.length && hiddenPastColumns > 0) {
+            document.getElementById('forecastTable').innerHTML =
+                '<tr><td style="padding:12px; text-align:center; color:var(--warning-color);">此時段已過，請調整開始時間或改選其他日期</td></tr>';
+        }
         if (activeMapDataLayer && document.getElementById('mapContainerWrapper')?.style.display !== 'none') {
             refreshActiveMapLayer(true);
         }
