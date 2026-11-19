@@ -17,14 +17,13 @@
 
     <title>釣點海象與活動安全評估</title>
     
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-    
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- 2026-11-19 加速開啟：Leaflet 改成按「展開地圖」才載入（見 loadLeaflet），
+         不再於 <head> 同步下載、擋住手機首次畫面。 -->
+    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+    <link rel="preconnect" href="https://marine-api.open-meteo.com" crossorigin>
 
-    <!-- SunCalc：天氣 API 沒給日出／月出時，在本機計算天文時間 -->
-    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
+    <!-- SunCalc：天氣 API 沒給日出／月出時，在本機計算天文時間（defer：不擋畫面） -->
+    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js" async></script>
 
     <style>
         :root {
@@ -3586,6 +3585,29 @@
         }
     }
 
+    // 2026-11-19：Leaflet 延後到第一次展開地圖才下載（約 150KB），加快手機開啟速度。
+    let leafletPromise = null;
+    function loadLeaflet() {
+        if (window.L) return Promise.resolve(true);
+        if (leafletPromise) return leafletPromise;
+        leafletPromise = new Promise(resolve => {
+            const css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+            css.crossOrigin = '';
+            document.head.appendChild(css);
+            const js = document.createElement('script');
+            js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            js.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+            js.crossOrigin = '';
+            js.onload = () => resolve(true);
+            js.onerror = () => { leafletPromise = null; resolve(false); };
+            document.head.appendChild(js);
+        });
+        return leafletPromise;
+    }
+
     function initMap() {
         // Leaflet is loaded from a CDN.  If an offline first launch cannot
         // obtain it, keep the forecast dashboard usable instead of letting a
@@ -3697,7 +3719,13 @@
                 coordsWrapper.setAttribute('aria-hidden', 'false');
             }
             toggleMapBtn.textContent = '🗺️ 隱藏地圖';
-            if (map) {
+            if (!map) {
+                loadLeaflet().then(() => {
+                    if (map) return;
+                    initMap();
+                    if (map) setTimeout(() => map.invalidateSize(), 100);
+                });
+            } else {
                 setTimeout(() => {
                     map.invalidateSize();
                     if (activeMapDataLayer) refreshActiveMapLayer(true);
@@ -4208,6 +4236,29 @@
               } },
         ];
 
+        // 2026-11-19 先顯示快取：手機開啟時不必等五支 API 全部回來（最慢可能數十秒），
+        // 有上次的資料就先畫出來，狀態顯示「快取・同步中」，新資料到了再覆蓋。
+        const earlyCache = readForecastCache(cacheKey);
+        if (earlyCache && sourceDefs.some(def => def.core && earlyCache[def.name]?.hourly)) {
+            try {
+                tideDataSource = earlyCache.tide?.hourly?.sea_level_height_msl ? 'open-meteo' : 'none';
+                forecastDataAvailable = true;
+                const astro = earlyCache.weather?.daily || computeAstroLocally(loc.lat, loc.lon);
+                if (astro) processAstroData(astro);
+                processModelData(
+                    earlyCache.weather?.hourly || null,
+                    earlyCache.wave?.hourly || null,
+                    earlyCache.current?.hourly || null,
+                    earlyCache.tide?.hourly || null,
+                    earlyCache.hazard?.hourly || null
+                );
+                statusEl.textContent = `⏳ ${formatAgeText(Date.now() - earlyCache.savedAt)}快取・同步中`;
+                statusEl.title = '先顯示上次儲存的資料，正在背景更新';
+            } catch (e) {
+                console.warn('快取預先渲染失敗：', e);
+            }
+        }
+
         try {
             // 五個來源各自重試、各自成敗，不再因為其中一支卡住就整頁失敗。
             // 有備援的來源：主來源只重試 1 次就改走備援，避免使用者等太久。
@@ -4686,7 +4737,7 @@
         renderLocationSelect();
         initMacroRegions();
         loadConfigToUI();
-        initMap();
+        // initMap() 改到第一次「展開地圖」時才執行（地圖預設隱藏）。
 
         const dateSelector = document.getElementById('dateSelector');
         const departureTitle = document.querySelector('#dateCard .compact-section-title');
@@ -5560,7 +5611,9 @@
         });
     }
 
-    window.onload = init;
+    // 2026-11-19：不再等 window.onload（要等所有外部資源下載完），DOM 好了就開始抓資料。
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
 </script>
 
 </body>
